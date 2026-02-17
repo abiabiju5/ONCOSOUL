@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'upload_consultation_summary_screen.dart';
 
 class MedicalStaffViewAppointmentsScreen extends StatelessWidget {
   const MedicalStaffViewAppointmentsScreen({super.key});
@@ -14,6 +15,7 @@ class MedicalStaffViewAppointmentsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           appointmentCard(
+            context: context,
             patientId: 'P1023',
             name: 'Ananya R.',
             age: '42',
@@ -28,6 +30,7 @@ class MedicalStaffViewAppointmentsScreen extends StatelessWidget {
   }
 
   Widget appointmentCard({
+    required BuildContext context,
     required String patientId,
     required String name,
     required String age,
@@ -64,13 +67,43 @@ class MedicalStaffViewAppointmentsScreen extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          Align(
-            alignment: Alignment.centerRight,
-            child: Chip(
-              label: const Text('Auto Approved'),
-              backgroundColor: Colors.green.withOpacity(0.15),
-              labelStyle: const TextStyle(color: Colors.green),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Chip(
+                  label: const Text('Auto Approved'),
+                  backgroundColor: Colors.green.withOpacity(0.15),
+                  labelStyle: const TextStyle(color: Colors.green),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Upload Summary button
+              ElevatedButton.icon(
+                icon: const Icon(Icons.upload_file_rounded, size: 16),
+                label: const Text(
+                  'Upload Summary',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: deepBlue,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const UploadConsultationSummaryScreen(),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         ],
       ),
