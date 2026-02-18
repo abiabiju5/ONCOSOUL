@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../models/patient_model.dart';
 import 'medical_report_page.dart';
 
 class ConsultationDetailsPage extends StatelessWidget {
@@ -83,7 +82,7 @@ class ConsultationDetailsPage extends StatelessWidget {
 
             const Spacer(),
 
-            // View reports
+            // View reports — now navigates to MedicalReportsPage with no args
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -93,15 +92,7 @@ class ConsultationDetailsPage extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => MedicalReportsPage(
-                        patients: [
-                          PatientModel(
-                            id: "TEMP",
-                            name: patientName,
-                            reports: [],
-                          ),
-                        ],
-                      ),
+                      builder: (_) => const MedicalReportsPage(),
                     ),
                   );
                 },

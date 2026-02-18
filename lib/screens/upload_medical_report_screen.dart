@@ -48,7 +48,7 @@ class _UploadMedicalReportScreenState
             const SizedBox(height: 8),
 
             DropdownButtonFormField<String>(
-              value: selectedReportType,
+              initialValue: selectedReportType,
               decoration: inputDecoration('Report Type'),
               items: const [
                 DropdownMenuItem(

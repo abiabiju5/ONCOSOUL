@@ -1,23 +1,18 @@
 import 'package:flutter/material.dart';
-import '../models/report_model.dart';
-import '../models/patient_model.dart';
-import '../models/consultation_summary_model.dart';
-import '../models/consultation_summary_store.dart';
+import '../services/doctor_service.dart';
 import '../services/prescription_pdf_service.dart';
-import 'medical_report_page.dart';
+import '../models/app_user_session.dart';
 
 class ConsultationRoomPage extends StatefulWidget {
+  final String appointmentId;
   final String patientName;
   final String patientId;
-  final List<ReportModel> reports;
-  final List<String> medicalHistory;
 
   const ConsultationRoomPage({
     super.key,
+    required this.appointmentId,
     required this.patientName,
     required this.patientId,
-    required this.reports,
-    required this.medicalHistory,
   });
 
   @override
@@ -26,615 +21,377 @@ class ConsultationRoomPage extends StatefulWidget {
 
 class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     with TickerProviderStateMixin {
-  // ── Controllers ──────────────────────────────────────────────────────────
-  late TextEditingController remarksController;
-  final TextEditingController medicineController = TextEditingController();
-  final TextEditingController dosageController = TextEditingController();
-  final TextEditingController durationController = TextEditingController();
-  final TextEditingController instructionsController = TextEditingController();
+  final _service = DoctorService();
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  List<Map<String, String>> prescriptions = [];
-  List<String> history = [];
-  List<ConsultationSummaryModel> offlineSummaries = [];
+  final _remarksCtrl = TextEditingController();
+  final _medicineCtrl = TextEditingController();
+  final _dosageCtrl = TextEditingController();
+  final _durationCtrl = TextEditingController();
+  final _instructionsCtrl = TextEditingController();
 
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
-
+  final List<Map<String, String>> _prescriptions = [];
   bool _isSavingPdf = false;
-  bool _notesExpanded = true;
-  bool _historyExpanded = true;
-  bool _prescriptionExpanded = true;
-  bool _offlineSummariesExpanded = true;
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
-  static const Color _primaryGreen = Color(0xFF1B8A5A);
+  bool _videoExpanded = true;
+  bool _reportsExpanded = true;
+  bool _summariesExpanded = true;
+  bool _notesExpanded = true;
+  bool _prescriptionExpanded = true;
+
+  late AnimationController _fadeCtrl;
+  late Animation<double> _fadeAnim;
+
+  static const Color _green = Color(0xFF1B8A5A);
   static const Color _lightGreen = Color(0xFFE8F5EE);
-  static const Color _warmWhite = Color(0xFFFAFAFA);
-  static const Color _cardShadow = Color(0x14000000);
-  static const Color _dividerColor = Color(0xFFE0E0E0);
+  static const Color _bg = Color(0xFFFAFAFA);
   static const Color _textPrimary = Color(0xFF1A1A2E);
   static const Color _textSecondary = Color(0xFF6B7280);
   static const Color _deepBlue = Color(0xFF0D47A1);
+  static const Color _divider = Color(0xFFE0E0E0);
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
-    remarksController = TextEditingController();
-    history = List<String>.from(widget.medicalHistory);
-    offlineSummaries = ConsultationSummaryStore.getSummaries(widget.patientId);
-
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
-    _fadeController.forward();
+    _fadeCtrl = AnimationController(
+        duration: const Duration(milliseconds: 600), vsync: this);
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    _fadeCtrl.forward();
   }
 
   @override
   void dispose() {
-    remarksController.dispose();
-    medicineController.dispose();
-    dosageController.dispose();
-    durationController.dispose();
-    instructionsController.dispose();
-    _fadeController.dispose();
+    _fadeCtrl.dispose();
+    _remarksCtrl.dispose();
+    _medicineCtrl.dispose();
+    _dosageCtrl.dispose();
+    _durationCtrl.dispose();
+    _instructionsCtrl.dispose();
     super.dispose();
   }
 
-  // ── Actions ───────────────────────────────────────────────────────────────
   void _addMedicine() {
-    if (medicineController.text.trim().isEmpty ||
-        dosageController.text.trim().isEmpty ||
-        durationController.text.trim().isEmpty) {
-      _showSnackbar('Please fill in all medicine fields.', isError: true);
+    if (_medicineCtrl.text.trim().isEmpty ||
+        _dosageCtrl.text.trim().isEmpty ||
+        _durationCtrl.text.trim().isEmpty) {
+      _snack('Please fill in all medicine fields.', isError: true);
       return;
     }
     setState(() {
-      prescriptions.add({
-        'medicine': medicineController.text.trim(),
-        'dosage': dosageController.text.trim(),
-        'duration': durationController.text.trim(),
-        'instructions': instructionsController.text.trim(),
+      _prescriptions.add({
+        'medicine': _medicineCtrl.text.trim(),
+        'dosage': _dosageCtrl.text.trim(),
+        'duration': _durationCtrl.text.trim(),
+        'instructions': _instructionsCtrl.text.trim(),
       });
-      medicineController.clear();
-      dosageController.clear();
-      durationController.clear();
-      instructionsController.clear();
+      _medicineCtrl.clear();
+      _dosageCtrl.clear();
+      _durationCtrl.clear();
+      _instructionsCtrl.clear();
     });
-    _showSnackbar('Medicine added to prescription.');
+    _snack('Medicine added to prescription.');
   }
 
-  void _removeMedicine(int index) =>
-      setState(() => prescriptions.removeAt(index));
-
   Future<void> _savePrescription() async {
-    if (prescriptions.isEmpty) {
-      _showSnackbar('No prescriptions to save.', isError: true);
+    if (_prescriptions.isEmpty) {
+      _snack('No prescriptions to save.', isError: true);
       return;
     }
     setState(() => _isSavingPdf = true);
     try {
+      final doctorName = AppUserSession.currentUser?.name ?? 'Doctor';
       final file = await PrescriptionPdfService.generatePrescriptionPdf(
         patientName: widget.patientName,
-        doctorName: 'Dr. John Doe',
-        medicines: prescriptions,
+        doctorName: 'Dr. $doctorName',
+        medicines: _prescriptions,
       );
       await PrescriptionPdfService.printPdf(file);
-      _showSnackbar('Prescription PDF generated successfully!');
+      _snack('Prescription PDF generated successfully!');
     } catch (_) {
-      _showSnackbar('Failed to generate PDF. Please try again.', isError: true);
+      _snack('Failed to generate PDF.', isError: true);
     } finally {
       setState(() => _isSavingPdf = false);
     }
   }
 
-  void _saveDoctorRemarks() {
-    if (remarksController.text.trim().isEmpty) {
-      _showSnackbar('Please enter some notes.', isError: true);
-      return;
-    }
-    _showSnackbar('Doctor notes saved successfully!');
+  void _snack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Row(children: [
+        Icon(isError ? Icons.error_rounded : Icons.check_circle_rounded,
+            color: Colors.white, size: 18),
+        const SizedBox(width: 10),
+        Expanded(child: Text(msg, style: const TextStyle(fontSize: 13))),
+      ]),
+      backgroundColor: isError ? Colors.red.shade600 : _green,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      duration: const Duration(seconds: 2),
+    ));
   }
 
-  void _showSnackbar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_rounded : Icons.check_circle_rounded,
-              color: Colors.white,
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(message, style: const TextStyle(fontSize: 13)),
-            ),
-          ],
-        ),
-        backgroundColor: isError ? Colors.red.shade600 : _primaryGreen,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _warmWhite,
+      backgroundColor: _bg,
       appBar: AppBar(
         title: Text('Consulting ${widget.patientName}'),
-        backgroundColor: _primaryGreen,
+        backgroundColor: _green,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
       body: FadeTransition(
-        opacity: _fadeAnimation,
+        opacity: _fadeAnim,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // ── Video Consultation ─────────────────────────────────────────
-            _buildSectionCard(
+            // Video section
+            _section(
+              title: 'Video Consultation',
+              icon: Icons.videocam_rounded,
+              color: _green,
+              isExpanded: _videoExpanded,
+              onToggle: () => setState(() => _videoExpanded = !_videoExpanded),
+              child: Container(
+                height: 200,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _green, width: 2),
+                ),
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.videocam_rounded, size: 60, color: Colors.white70),
+                      SizedBox(height: 10),
+                      Text('Video call in progress',
+                          style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Medical Reports
+            _section(
+              title: 'Medical Reports',
+              icon: Icons.description_rounded,
+              color: _deepBlue,
+              isExpanded: _reportsExpanded,
+              onToggle: () =>
+                  setState(() => _reportsExpanded = !_reportsExpanded),
+              child: StreamBuilder<List<FirestoreReport>>(
+                stream: _service.reportsForPatient(widget.patientId),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final reports = snap.data ?? [];
+                  if (reports.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('No reports uploaded yet.',
+                          style: TextStyle(color: _textSecondary)),
+                    );
+                  }
+                  return Column(
+                      children: reports.map(_reportTile).toList());
+                },
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Offline Summaries
+            _section(
+              title: 'Previous Consultations',
+              icon: Icons.history_rounded,
+              color: _deepBlue,
+              isExpanded: _summariesExpanded,
+              onToggle: () =>
+                  setState(() => _summariesExpanded = !_summariesExpanded),
+              child: StreamBuilder<List<FirestoreSummary>>(
+                stream: _service.summariesForPatient(widget.patientId),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final summaries = snap.data ?? [];
+                  if (summaries.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('No offline visit summaries found.',
+                          style: TextStyle(color: _textSecondary)),
+                    );
+                  }
+                  return Column(
+                      children: summaries.map(_summaryCard).toList());
+                },
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Doctor Notes
+            _section(
+              title: 'Doctor Notes',
+              icon: Icons.edit_note_rounded,
+              color: _green,
+              isExpanded: _notesExpanded,
+              onToggle: () => setState(() => _notesExpanded = !_notesExpanded),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionHeader(
-                      'Video Consultation', Icons.videocam_rounded, _primaryGreen),
-                  const SizedBox(height: 16),
-                  Container(
-                    height: 200,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: _primaryGreen, width: 2),
-                    ),
-                    child: const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.videocam_rounded,
-                              size: 60, color: Colors.white70),
-                          SizedBox(height: 10),
-                          Text(
-                            'Video call in progress',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 14),
-                          ),
-                        ],
+                  TextField(
+                    controller: _remarksCtrl,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: 'Enter consultation notes…',
+                      filled: true,
+                      fillColor: _lightGreen,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.description_rounded, size: 18),
-                      label: const Text(
-                        'View Medical Reports',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _primaryGreen,
-                        side: const BorderSide(color: _primaryGreen, width: 1.5),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.save_rounded, size: 16),
+                      label: const Text('Save Notes'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _green,
+                        foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                       ),
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => MedicalReportsPage(
-                              patients: [
-                                PatientModel(
-                                  id: widget.patientId,
-                                  name: widget.patientName,
-                                  reports: widget.reports,
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
+                        if (_remarksCtrl.text.trim().isEmpty) {
+                          _snack('Please enter some notes.', isError: true);
+                        } else {
+                          _snack('Notes saved!');
+                        }
                       },
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
 
-            // ── Medical History ────────────────────────────────────────────
-            _buildExpandableCard(
-              title: 'Medical History',
-              icon: Icons.history_rounded,
-              iconColor: const Color(0xFF8B5CF6),
-              isExpanded: _historyExpanded,
-              onToggle: () =>
-                  setState(() => _historyExpanded = !_historyExpanded),
-              child: history.isEmpty
-                  ? const Text(
-                      'No medical history available.',
-                      style: TextStyle(
-                          color: _textSecondary,
-                          fontSize: 13,
-                          fontStyle: FontStyle.italic),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: history
-                          .map(
-                            (entry) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(Icons.fiber_manual_record,
-                                      size: 8, color: _textSecondary),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(entry,
-                                        style: const TextStyle(
-                                            fontSize: 13,
-                                            color: _textPrimary)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
 
-            // ── Offline Consultation Summaries ─────────────────────────────
-            _buildExpandableCard(
-              title: 'Consultation Summaries',
-              icon: Icons.assignment_ind_rounded,
-              iconColor: _deepBlue,
-              isExpanded: _offlineSummariesExpanded,
-              onToggle: () => setState(
-                  () => _offlineSummariesExpanded = !_offlineSummariesExpanded),
-              child: offlineSummaries.isEmpty
-                  ? const Text(
-                      'No offline consultation summaries uploaded by medical staff yet.',
-                      style: TextStyle(
-                          color: _textSecondary,
-                          fontSize: 13,
-                          fontStyle: FontStyle.italic),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: offlineSummaries
-                          .map((s) => _buildOfflineSummaryCard(s))
-                          .toList(),
-                    ),
-            ),
-            const SizedBox(height: 14),
-
-            // ── Prescription ───────────────────────────────────────────────
-            _buildExpandableCard(
+            // Prescription
+            _section(
               title: 'Prescription',
               icon: Icons.medication_rounded,
-              iconColor: const Color(0xFFEF4444),
+              color: const Color(0xFF7B1FA2),
               isExpanded: _prescriptionExpanded,
               onToggle: () => setState(
                   () => _prescriptionExpanded = !_prescriptionExpanded),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Add medicine form
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: _lightGreen,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: _primaryGreen.withValues(alpha: 0.2)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Add New Medicine',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              color: _textPrimary),
-                        ),
-                        const SizedBox(height: 12),
-                        _inputField(
-                            controller: medicineController,
-                            label: 'Medicine Name'),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _inputField(
-                                  controller: dosageController,
-                                  label: 'Dosage'),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _inputField(
-                                  controller: durationController,
-                                  label: 'Duration'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        _inputField(
-                            controller: instructionsController,
-                            label: 'Instructions (Optional)'),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.add_rounded, size: 18),
-                            label: const Text(
-                              'Add to Prescription',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _primaryGreen,
-                              foregroundColor: Colors.white,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                            ),
-                            onPressed: _addMedicine,
+                  if (_prescriptions.isNotEmpty) ...[
+                    ..._prescriptions.asMap().entries.map((e) {
+                      final i = e.key;
+                      final p = e.value;
+                      return Card(
+                        color: const Color(0xFFF3E5F5),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        child: ListTile(
+                          title: Text(p['medicine']!,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700)),
+                          subtitle: Text(
+                              '${p['dosage']}  •  ${p['duration']}${p['instructions']!.isNotEmpty ? '\n${p['instructions']}' : ''}'),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_rounded,
+                                color: Colors.red),
+                            onPressed: () =>
+                                setState(() => _prescriptions.removeAt(i)),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Prescription list
-                  if (prescriptions.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        'No medicines added yet.',
-                        style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 13,
-                            fontStyle: FontStyle.italic),
-                      ),
-                    )
-                  else
-                    Column(
-                      children: prescriptions
-                          .asMap()
-                          .entries
-                          .map((e) => _buildPrescriptionItem(e.key, e.value))
-                          .toList(),
-                    ),
-
-                  // Save PDF button
-                  if (prescriptions.isNotEmpty) ...[
+                      );
+                    }),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
+                  ],
+                  _field(_medicineCtrl, 'Medicine Name',
+                      Icons.medication_rounded),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(
+                        child: _field(
+                            _dosageCtrl, 'Dosage', Icons.science_rounded)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: _field(
+                            _durationCtrl, 'Duration', Icons.timer_rounded)),
+                  ]),
+                  const SizedBox(height: 8),
+                  _field(_instructionsCtrl, 'Instructions (optional)',
+                      Icons.notes_rounded),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Add'),
+                        onPressed: _addMedicine,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: ElevatedButton.icon(
                         icon: _isSavingPdf
                             ? const SizedBox(
-                                width: 18,
-                                height: 18,
+                                width: 14, height: 14,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white)),
-                              )
-                            : const Icon(Icons.save_rounded, size: 18),
-                        label: Text(
-                          _isSavingPdf
-                              ? 'Generating PDF...'
-                              : 'Save & Download PDF',
-                          style:
-                              const TextStyle(fontWeight: FontWeight.w600),
-                        ),
+                                    color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.print_rounded, size: 16),
+                        label: Text(_isSavingPdf ? 'Generating…' : 'Print PDF'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFEF4444),
+                          backgroundColor: const Color(0xFF7B1FA2),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: _isSavingPdf ? null : _savePrescription,
                       ),
                     ),
-                  ],
+                  ]),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
 
-            // ── Doctor's Notes ─────────────────────────────────────────────
-            _buildExpandableCard(
-              title: "Doctor's Notes",
-              icon: Icons.notes_rounded,
-              iconColor: const Color(0xFFF59E0B),
-              isExpanded: _notesExpanded,
-              onToggle: () =>
-                  setState(() => _notesExpanded = !_notesExpanded),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: remarksController,
-                    maxLines: 5,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      hintText: 'Add notes, observations, or remarks...',
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.all(12),
-                    ),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.save_rounded, size: 18),
-                      label: const Text(
-                        'Save Notes',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF59E0B),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: _saveDoctorRemarks,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // ── End Consultation ───────────────────────────────────────────
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.phone_disabled_rounded, size: 18),
-                label: const Text(
-                  'End Consultation',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFDC2626),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  elevation: 2,
-                ),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
           ],
         ),
       ),
     );
   }
 
-  // ── Helper Widgets ────────────────────────────────────────────────────────
-
-  Widget _inputField({
-    required TextEditingController controller,
-    required String label,
-  }) {
+  Widget _field(TextEditingController ctrl, String hint, IconData icon) {
     return TextField(
-      controller: controller,
+      controller: ctrl,
       decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        hintText: hint,
+        prefixIcon: Icon(icon, size: 18),
         filled: true,
         fillColor: Colors.white,
-      ),
-      style: const TextStyle(fontSize: 13),
-    );
-  }
-
-  Widget _buildPrescriptionItem(int index, Map<String, String> medicine) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border:
-            Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEF4444).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.medication_rounded,
-                color: Color(0xFFEF4444), size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  medicine['medicine'] ?? '',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: _textPrimary),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${medicine['dosage']} • ${medicine['duration']}',
-                  style:
-                      const TextStyle(fontSize: 12, color: _textSecondary),
-                ),
-                if (medicine['instructions']?.isNotEmpty ?? false)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      medicine['instructions']!,
-                      style: const TextStyle(
-                          fontSize: 11,
-                          color: _textSecondary,
-                          fontStyle: FontStyle.italic),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline_rounded,
-                color: Color(0xFFDC2626)),
-            onPressed: () => _removeMedicine(index),
-          ),
-        ],
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
     );
   }
 
-  Widget _buildSectionCard({required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-              color: _cardShadow, blurRadius: 8, offset: Offset(0, 2)),
-        ],
-      ),
-      padding: const EdgeInsets.all(18),
-      child: child,
-    );
-  }
-
-  Widget _buildExpandableCard({
+  Widget _section({
     required String title,
     required IconData icon,
-    required Color iconColor,
+    required Color color,
     required bool isExpanded,
     required VoidCallback onToggle,
     required Widget child,
@@ -642,92 +399,98 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
-              color: _cardShadow, blurRadius: 8, offset: Offset(0, 2)),
+              color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2)),
         ],
       ),
       child: Column(
         children: [
           InkWell(
+            borderRadius: BorderRadius.circular(16),
             onTap: onToggle,
-            borderRadius: BorderRadius.circular(14),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
                   Container(
-                    width: 36,
-                    height: 36,
+                    width: 32, height: 32,
                     decoration: BoxDecoration(
-                      color: iconColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(9),
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     alignment: Alignment.center,
-                    child: Icon(icon, size: 18, color: iconColor),
+                    child: Icon(icon, size: 16, color: color),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          color: _textPrimary),
-                    ),
+                    child: Text(title,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: _textPrimary)),
                   ),
                   Icon(
                     isExpanded
                         ? Icons.keyboard_arrow_up_rounded
                         : Icons.keyboard_arrow_down_rounded,
                     color: _textSecondary,
-                    size: 22,
                   ),
                 ],
               ),
             ),
           ),
           if (isExpanded) ...[
-            const Divider(height: 1, color: _dividerColor),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: child,
-            ),
+            const Divider(height: 1, color: _divider),
+            Padding(padding: const EdgeInsets.all(16), child: child),
           ],
         ],
       ),
     );
   }
 
-  Widget _sectionHeader(String title, IconData icon, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
+  Widget _reportTile(FirestoreReport r) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F4FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _deepBlue.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.insert_drive_file_rounded,
+              color: _deepBlue, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(r.reportType,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(
+                  'Uploaded: ${r.uploadedAt.day}/${r.uploadedAt.month}/${r.uploadedAt.year}  •  ${r.uploadedBy}',
+                  style: const TextStyle(fontSize: 11, color: _textSecondary),
+                ),
+                if (r.notes.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(r.notes,
+                      style:
+                          const TextStyle(fontSize: 12, color: _textPrimary)),
+                ],
+              ],
+            ),
           ),
-          alignment: Alignment.center,
-          child: Icon(icon, size: 16, color: color),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: _textPrimary),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  // ── Offline Summary Card ──────────────────────────────────────────────────
-
-  Widget _buildOfflineSummaryCard(ConsultationSummaryModel summary) {
+  Widget _summaryCard(FirestoreSummary s) {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
@@ -738,10 +501,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header strip
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: _deepBlue.withValues(alpha: 0.08),
               borderRadius:
@@ -754,7 +515,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${summary.date}  •  ${summary.time}',
+                    '${s.uploadedAt.day}/${s.uploadedAt.month}/${s.uploadedAt.year}',
                     style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -768,39 +529,34 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                     color: _deepBlue.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text(
-                    'Offline Visit',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: _deepBlue),
-                  ),
+                  child: const Text('Offline Visit',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: _deepBlue)),
                 ),
               ],
             ),
           ),
-
           Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _summaryRow(Icons.medical_services_outlined, 'Doctor',
-                    summary.doctorName),
+                _sRow(Icons.medical_services_outlined, 'Doctor', s.doctorName),
                 const Divider(height: 16),
-                _summaryRow(Icons.report_problem_outlined,
-                    'Chief Complaint', summary.chiefComplaint),
-                const SizedBox(height: 10),
-                _summaryRow(Icons.biotech_outlined, 'Clinical Findings',
-                    summary.clinicalFindings),
-                const SizedBox(height: 10),
-                _summaryRow(Icons.health_and_safety_outlined, 'Diagnosis',
-                    summary.diagnosis),
-                const SizedBox(height: 10),
-                _summaryRow(Icons.medication_outlined, 'Treatment Given',
-                    summary.treatmentGiven),
-
-                if (summary.nurseNotes.isNotEmpty) ...[
+                _sRow(Icons.report_problem_outlined, 'Chief Complaint',
+                    s.chiefComplaint),
+                const SizedBox(height: 8),
+                _sRow(Icons.biotech_outlined, 'Clinical Findings',
+                    s.clinicalFindings),
+                const SizedBox(height: 8),
+                _sRow(Icons.health_and_safety_outlined, 'Diagnosis',
+                    s.diagnosis),
+                const SizedBox(height: 8),
+                _sRow(Icons.medication_outlined, 'Treatment Given',
+                    s.treatmentGiven),
+                if (s.nurseNotes.isNotEmpty) ...[
                   const Divider(height: 16),
                   Container(
                     padding: const EdgeInsets.all(10),
@@ -820,19 +576,15 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Nurse Notes',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: _deepBlue),
-                              ),
+                              const Text('Nurse Notes',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: _deepBlue)),
                               const SizedBox(height: 4),
-                              Text(
-                                summary.nurseNotes,
-                                style: const TextStyle(
-                                    fontSize: 12, color: _textPrimary),
-                              ),
+                              Text(s.nurseNotes,
+                                  style: const TextStyle(
+                                      fontSize: 12, color: _textPrimary)),
                             ],
                           ),
                         ),
@@ -840,20 +592,10 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                     ),
                   ),
                 ],
-
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Icon(Icons.person_outline_rounded,
-                        size: 13, color: _textSecondary),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Uploaded by ${summary.uploadedBy}',
-                      style: const TextStyle(
-                          fontSize: 11, color: _textSecondary),
-                    ),
-                  ],
-                ),
+                const SizedBox(height: 8),
+                Text('Uploaded by ${s.uploadedBy}',
+                    style: const TextStyle(
+                        fontSize: 11, color: _textSecondary)),
               ],
             ),
           ),
@@ -862,7 +604,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     );
   }
 
-  Widget _summaryRow(IconData icon, String label, String value) {
+  Widget _sRow(IconData icon, String label, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -872,18 +614,14 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: _textSecondary),
-              ),
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _textSecondary)),
               const SizedBox(height: 2),
-              Text(
-                value,
-                style: const TextStyle(fontSize: 13, color: _textPrimary),
-              ),
+              Text(value,
+                  style: const TextStyle(fontSize: 13, color: _textPrimary)),
             ],
           ),
         ),

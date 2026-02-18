@@ -185,7 +185,7 @@ class _SplashScreenState extends State<SplashScreen>
     // Login page fades in cleanly — no slide, no jitter
     Navigator.pushReplacement(context, PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 600),
-      pageBuilder: (_, __, ___) => LoginPage(),
+      pageBuilder: (_, __, ___) => const LoginPage(),
       transitionsBuilder: (_, anim, __, child) => FadeTransition(
         opacity: CurvedAnimation(parent: anim, curve: Curves.easeIn),
         child: child,
@@ -234,8 +234,8 @@ class _SplashScreenState extends State<SplashScreen>
                   width: sz.width * 1.3, height: sz.width * 1.3,
                   decoration: BoxDecoration(shape: BoxShape.circle,
                     gradient: RadialGradient(colors: [
-                      _kWhite.withOpacity(0.55),
-                      _kWhite.withOpacity(0.18),
+                      _kWhite.withValues(alpha: 0.55),
+                      _kWhite.withValues(alpha: 0.18),
                       Colors.transparent,
                     ], stops: const [0.0, 0.5, 1.0])),
                 )),
@@ -247,7 +247,7 @@ class _SplashScreenState extends State<SplashScreen>
                   width: sz.width * 0.9, height: sz.width * 0.9,
                   decoration: BoxDecoration(shape: BoxShape.circle,
                     gradient: RadialGradient(colors: [
-                      _kMid.withOpacity(0.45), Colors.transparent])),
+                      _kMid.withValues(alpha: 0.45), Colors.transparent])),
                 )),
               ),
 
@@ -309,19 +309,19 @@ class _SplashScreenState extends State<SplashScreen>
             width: 130 + (p - 1.0) * 80,
             height: 130 + (p - 1.0) * 80,
             decoration: BoxDecoration(shape: BoxShape.circle,
-                color: _kNavy.withOpacity(0.06 * (2.0 - p)))),
+                color: _kNavy.withValues(alpha: 0.06 * (2.0 - p)))),
           // White circle
           Container(width: 118, height: 118,
             decoration: BoxDecoration(shape: BoxShape.circle,
               gradient: RadialGradient(
-                  colors: [_kWhite, _kIce.withOpacity(0.8)]),
+                  colors: [_kWhite, _kIce.withValues(alpha: 0.8)]),
               boxShadow: [
-                BoxShadow(color: _kNavy.withOpacity(0.15),
+                BoxShadow(color: _kNavy.withValues(alpha: 0.15),
                     blurRadius: 28, spreadRadius: 2,
                     offset: const Offset(0, 8)),
-                BoxShadow(color: _kWhite.withOpacity(0.8),
+                BoxShadow(color: _kWhite.withValues(alpha: 0.8),
                     blurRadius: 20, spreadRadius: 4),
-                BoxShadow(color: _kSky.withOpacity(0.3 * p),
+                BoxShadow(color: _kSky.withValues(alpha: 0.3 * p),
                     blurRadius: 40, spreadRadius: 8),
               ],
             )),
@@ -342,11 +342,11 @@ class _SplashScreenState extends State<SplashScreen>
         Container(width: 200 * _dividerW.value, height: 1.5,
           decoration: BoxDecoration(borderRadius: BorderRadius.circular(2),
             gradient: LinearGradient(colors: [Colors.transparent,
-              _kNavy.withOpacity(0.38), Colors.transparent]))),
+              _kNavy.withValues(alpha: 0.38), Colors.transparent]))),
         const SizedBox(height: 8),
         Opacity(opacity: _dividerW.value,
           child: Text('C O M P R E H E N S I V E   C A N C E R   C A R E',
-            style: TextStyle(fontSize: 9, color: _kNavy.withOpacity(0.48),
+            style: TextStyle(fontSize: 9, color: _kNavy.withValues(alpha: 0.48),
                 letterSpacing: 2.0, fontWeight: FontWeight.w500))),
       ]),
     ),
@@ -367,12 +367,12 @@ class _SplashScreenState extends State<SplashScreen>
             borderRadius: BorderRadius.circular(28),
             gradient: LinearGradient(
               begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [_kWhite.withOpacity(0.82), _kWhite.withOpacity(0.65)]),
-            border: Border.all(color: _kWhite.withOpacity(0.90), width: 1.5),
+              colors: [_kWhite.withValues(alpha: 0.82), _kWhite.withValues(alpha: 0.65)]),
+            border: Border.all(color: _kWhite.withValues(alpha: 0.90), width: 1.5),
             boxShadow: [
-              BoxShadow(color: _kNavy.withOpacity(0.11),
+              BoxShadow(color: _kNavy.withValues(alpha: 0.11),
                   blurRadius: 40, offset: const Offset(0, 16)),
-              BoxShadow(color: _kWhite.withOpacity(0.7),
+              BoxShadow(color: _kWhite.withValues(alpha: 0.7),
                   blurRadius: 1, offset: const Offset(0, -1)),
             ],
           ),
@@ -383,7 +383,7 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Container(height: 56,
                   decoration: BoxDecoration(gradient: LinearGradient(
                     begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                    colors: [_kWhite.withOpacity(0.55), Colors.transparent])))),
+                    colors: [_kWhite.withValues(alpha: 0.55), Colors.transparent])))),
 
               Padding(padding: const EdgeInsets.fromLTRB(26, 26, 26, 24),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start,
@@ -405,16 +405,16 @@ class _SplashScreenState extends State<SplashScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 7),
                       decoration: BoxDecoration(
-                        color: _kNavy.withOpacity(0.07),
+                        color: _kNavy.withValues(alpha: 0.07),
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(
-                            color: _kNavy.withOpacity(0.14), width: 1)),
+                            color: _kNavy.withValues(alpha: 0.14), width: 1)),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         Icon(s.icon, size: 13,
-                            color: _kNavy.withOpacity(0.72)),
+                            color: _kNavy.withValues(alpha: 0.72)),
                         const SizedBox(width: 7),
                         Text(s.label, style: TextStyle(fontSize: 10,
-                          color: _kNavy.withOpacity(0.72),
+                          color: _kNavy.withValues(alpha: 0.72),
                           fontWeight: FontWeight.w700, letterSpacing: 1.4)),
                       ]),
                     ),
@@ -433,7 +433,7 @@ class _SplashScreenState extends State<SplashScreen>
                             color: _kNavy, height: 1.22, letterSpacing: 0.1)),
                           const SizedBox(height: 10),
                           Text(s.body, style: TextStyle(fontSize: 14,
-                            color: _kNavy.withOpacity(0.58), height: 1.65)),
+                            color: _kNavy.withValues(alpha: 0.58), height: 1.65)),
                         ],
                       ),
                     ),
@@ -453,7 +453,7 @@ class _SplashScreenState extends State<SplashScreen>
                         borderRadius: BorderRadius.circular(4),
                         color: active
                             ? _kNavy
-                            : _kNavy.withOpacity(0.18)));
+                            : _kNavy.withValues(alpha: 0.18)));
                   })),
                 ])),
             ]),
@@ -469,10 +469,10 @@ class _SplashScreenState extends State<SplashScreen>
       SizedBox(width: 17, height: 17,
         child: CircularProgressIndicator(strokeWidth: 2.0,
           valueColor: AlwaysStoppedAnimation<Color>(
-              _kNavy.withOpacity(0.45)))),
+              _kNavy.withValues(alpha: 0.45)))),
       const SizedBox(width: 14),
       Text('Getting things ready…', style: TextStyle(fontSize: 13,
-          color: _kNavy.withOpacity(0.45), letterSpacing: 0.3,
+          color: _kNavy.withValues(alpha: 0.45), letterSpacing: 0.3,
           fontWeight: FontWeight.w500)),
     ]),
   );
@@ -504,7 +504,7 @@ class _Orb extends StatelessWidget {
     child: Container(width: size, height: size,
       decoration: BoxDecoration(shape: BoxShape.circle,
         gradient: RadialGradient(colors: [
-          _kWhite.withOpacity(opacity), Colors.transparent]))));
+          _kWhite.withValues(alpha: opacity), Colors.transparent]))));
 }
 
 // ── Data models ────────────────────────────────────────────────────────────
@@ -527,12 +527,14 @@ class _DotTexturePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()
-      ..color = _kNavy.withOpacity(0.028)
+      ..color = _kNavy.withValues(alpha: 0.028)
       ..style  = PaintingStyle.fill;
     const gap = 28.0;
-    for (double x = gap / 2; x < size.width;  x += gap)
-      for (double y = gap / 2; y < size.height; y += gap)
+    for (double x = gap / 2; x < size.width;  x += gap) {
+      for (double y = gap / 2; y < size.height; y += gap) {
         canvas.drawCircle(Offset(x, y), 1.4, p);
+      }
+    }
   }
   @override bool shouldRepaint(_) => false;
 }

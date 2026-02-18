@@ -439,12 +439,12 @@ class _UploadConsultationSummaryScreenState
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _accentBlue.withValues(alpha: 0.3)),
       ),
-      child: Row(
+      child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, color: _accentBlue, size: 20),
-          const SizedBox(width: 10),
-          const Expanded(
+          Icon(Icons.info_outline_rounded, color: _accentBlue, size: 20),
+          SizedBox(width: 10),
+          Expanded(
             child: Text(
               'Fill in the details of the patient\'s offline visit. '
               'This summary will be visible to the assigned doctor '
@@ -481,10 +481,10 @@ class _UploadConsultationSummaryScreenState
           // Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: _lightBlue,
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(14)),
+                  BorderRadius.vertical(top: Radius.circular(14)),
             ),
             child: Row(
               children: [

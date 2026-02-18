@@ -4,7 +4,8 @@ class Homestay {
   final String contact;
   final double lat;
   final double lng;
-  final double rate; // ✅ Added rate
+  final double rate;
+  final String? imagePath; // ✅ Added imagePath
 
   Homestay({
     required this.name,
@@ -13,6 +14,7 @@ class Homestay {
     required this.lat,
     required this.lng,
     required this.rate,
+    this.imagePath, // optional — existing entries won't break
   });
 }
 

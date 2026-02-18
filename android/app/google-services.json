@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "163346620098",
+    "project_id": "oncosoul-3ce80",
+    "storage_bucket": "oncosoul-3ce80.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:163346620098:android:cc90475b65a923a3c9a55b",
+        "android_client_info": {
+          "package_name": "com.example.oncosoul"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlWNYxrWrIjYC-Hnnh60jF-cJV9mrwvIw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:163346620098:android:1057abd058be41dcc9a55b",
+        "android_client_info": {
+          "package_name": "com.google.oncosoul"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlWNYxrWrIjYC-Hnnh60jF-cJV9mrwvIw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -56,7 +56,7 @@ class PrescriptionPdfService {
                 border: pw.TableBorder.all(),
                 headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                 headerDecoration:
-                    pw.BoxDecoration(color: PdfColors.grey300),
+                    const pw.BoxDecoration(color: PdfColors.grey300),
               ),
 
               pw.SizedBox(height: 40),

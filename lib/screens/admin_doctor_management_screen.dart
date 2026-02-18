@@ -114,7 +114,7 @@ class _AdminDoctorManagementScreenState
               ),
               Switch(
                 value: doctor['available'],
-                activeColor: deepBlue,
+                activeThumbColor: deepBlue,
                 onChanged: (value) {
                   setState(() {
                     doctors[index]['available'] = value;

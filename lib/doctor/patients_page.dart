@@ -1,48 +1,84 @@
 import 'package:flutter/material.dart';
+import '../services/doctor_service.dart';
 
 class PatientDetailsPage extends StatelessWidget {
-  final Map<String, String> patient;
+  final DoctorPatient patient;
   const PatientDetailsPage({super.key, required this.patient});
+
+  static const Color _purple = Color(0xFF6A1B9A);
+  static const Color _lightPurple = Color(0xFFF3E5F5);
 
   @override
   Widget build(BuildContext context) {
+    final service = DoctorService();
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Patient Details"),
-        backgroundColor: Colors.blueAccent,
+        title: Text(patient.name),
+        backgroundColor: _purple,
+        foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Patient Basic Info
             Card(
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 3,
-              margin: const EdgeInsets.only(bottom: 16),
+                  borderRadius: BorderRadius.circular(16)),
+              elevation: 2,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 child: Row(
                   children: [
-                    const CircleAvatar(
-                      radius: 35,
-                      child: Icon(Icons.person, size: 40),
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: _purple.withValues(alpha: 0.12),
+                      child: Text(
+                        patient.name.isNotEmpty
+                            ? patient.name[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: _purple),
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            patient["name"] ?? "Unknown",
-                            style: const TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.bold),
-                          ),
+                          Text(patient.name,
+                              style: const TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 4),
-                          Text("Age: ${patient["age"] ?? 'N/A'}"),
-                          Text("Blood Group: ${patient["bloodGroup"] ?? 'N/A'}"),
+                          Text('Patient ID: ${patient.userId}',
+                              style: const TextStyle(
+                                  color: Colors.grey, fontSize: 13)),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: patient.isActive
+                                  ? Colors.green.shade50
+                                  : Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: patient.isActive
+                                      ? Colors.green.shade300
+                                      : Colors.red.shade300),
+                            ),
+                            child: Text(
+                              patient.isActive ? 'Active' : 'Inactive',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: patient.isActive
+                                      ? Colors.green.shade700
+                                      : Colors.red.shade700),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -51,73 +87,110 @@ class PatientDetailsPage extends StatelessWidget {
               ),
             ),
 
-            // Diagnosis Card
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Diagnosis",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            const SizedBox(height: 16),
+
+            const Text('Medical Reports',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            StreamBuilder<List<FirestoreReport>>(
+              stream: service.reportsForPatient(patient.userId),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final reports = snap.data ?? [];
+                if (reports.isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _lightPurple,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const Divider(thickness: 1, height: 16),
-                    Text(patient["diagnosis"] ?? "N/A"),
-                  ],
-                ),
-              ),
+                    child: const Row(children: [
+                      Icon(Icons.folder_open_rounded, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text('No reports uploaded yet.',
+                          style: TextStyle(color: Colors.grey)),
+                    ]),
+                  );
+                }
+                return Column(
+                  children: reports.map((r) => Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _purple.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.insert_drive_file_rounded,
+                            color: _purple, size: 20),
+                      ),
+                      title: Text(r.reportType,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        '${r.uploadedAt.day}/${r.uploadedAt.month}/${r.uploadedAt.year}  •  ${r.uploadedBy}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  )).toList(),
+                );
+              },
             ),
 
-            // Allergies & Medications
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Allergies & Medications",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
-                    const Divider(thickness: 1, height: 16),
-                    Text("Allergies: ${patient["allergies"] ?? 'None'}"),
-                    Text("Medications: ${patient["medications"] ?? 'None'}"),
-                  ],
-                ),
-              ),
-            ),
+            const SizedBox(height: 16),
 
-            // Notes / History
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Medical History / Notes",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            const Text('Offline Visit Summaries',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            StreamBuilder<List<FirestoreSummary>>(
+              stream: service.summariesForPatient(patient.userId),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final summaries = snap.data ?? [];
+                if (summaries.isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _lightPurple,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const Divider(thickness: 1, height: 16),
-                    Text(patient["notes"] ?? "No history available"),
-                  ],
-                ),
-              ),
+                    child: const Row(children: [
+                      Icon(Icons.history_rounded, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text('No summaries found.',
+                          style: TextStyle(color: Colors.grey)),
+                    ]),
+                  );
+                }
+                return Column(
+                  children: summaries.map((s) => Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _purple.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.local_hospital_rounded,
+                            color: _purple, size: 20),
+                      ),
+                      title: Text(s.diagnosis,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        '${s.uploadedAt.day}/${s.uploadedAt.month}/${s.uploadedAt.year}  •  ${s.doctorName}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  )).toList(),
+                );
+              },
             ),
           ],
         ),
@@ -126,67 +199,134 @@ class PatientDetailsPage extends StatelessWidget {
   }
 }
 
-// Example usage in PatientsPage
-class PatientsPage extends StatelessWidget {
-  PatientsPage({super.key});
+class PatientsPage extends StatefulWidget {
+  const PatientsPage({super.key});
 
-  final List<Map<String, String>> patients = [
-    {
-      "name": "John Doe",
-      "age": "45",
-      "bloodGroup": "A+",
-      "diagnosis": "Lung Cancer",
-      "allergies": "Penicillin",
-      "medications": "Aspirin",
-      "notes": "Patient is stable and responding to treatment",
-    },
-    {
-      "name": "Jane Smith",
-      "age": "38",
-      "bloodGroup": "B+",
-      "diagnosis": "Breast Cancer",
-      "allergies": "None",
-      "medications": "Metformin",
-      "notes": "Patient requires regular follow-up",
-    },
-    {
-      "name": "Michael Brown",
-      "age": "52",
-      "bloodGroup": "O-",
-      "diagnosis": "Leukemia",
-      "allergies": "None",
-      "medications": "Chemotherapy",
-      "notes": "Patient under observation",
-    },
-  ];
+  @override
+  State<PatientsPage> createState() => _PatientsPageState();
+}
+
+class _PatientsPageState extends State<PatientsPage> {
+  final _service = DoctorService();
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  static const Color _purple = Color(0xFF6A1B9A);
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Patients")),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: patients.length,
-        itemBuilder: (context, index) {
-          final patient = patients[index];
-          return Card(
-            child: ListTile(
-              leading: const Icon(Icons.person),
-              title: Text(patient["name"]!),
-              subtitle: Text(
-                "Age: ${patient["age"]} | Diagnosis: ${patient["diagnosis"]}",
+      appBar: AppBar(
+        title: const Text('My Patients'),
+        backgroundColor: _purple,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search patient...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() {
+                          _searchCtrl.clear();
+                          _searchQuery = '';
+                        }),
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12),
               ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PatientDetailsPage(patient: patient),
-                  ),
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: StreamBuilder<List<DoctorPatient>>(
+              stream: _service.patientsStream(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snap.hasError) {
+                  return Center(child: Text('Error: ${snap.error}'));
+                }
+                var patients = snap.data ?? [];
+                if (_searchQuery.isNotEmpty) {
+                  patients = patients
+                      .where((p) => p.name
+                          .toLowerCase()
+                          .contains(_searchQuery.toLowerCase()))
+                      .toList();
+                }
+                if (patients.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.people_outline_rounded,
+                            size: 56, color: Colors.grey),
+                        SizedBox(height: 12),
+                        Text('No patients found.',
+                            style: TextStyle(color: Colors.grey)),
+                      ],
+                    ),
+                  );
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: patients.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final p = patients[i];
+                    return Card(
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        leading: CircleAvatar(
+                          backgroundColor: _purple.withValues(alpha: 0.12),
+                          child: Text(
+                            p.name.isNotEmpty ? p.name[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, color: _purple),
+                          ),
+                        ),
+                        title: Text(p.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700)),
+                        subtitle: Text('ID: ${p.userId}',
+                            style: const TextStyle(fontSize: 12)),
+                        trailing: const Icon(Icons.chevron_right_rounded,
+                            color: Colors.grey),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PatientDetailsPage(patient: p),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

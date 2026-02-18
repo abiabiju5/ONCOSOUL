@@ -63,7 +63,7 @@ class _AdminManageAppointmentsScreenState
 
             sectionTitle('Slot Duration (minutes)'),
             DropdownButtonFormField<int>(
-              value: slotDuration,
+              initialValue: slotDuration,
               items: const [
                 DropdownMenuItem(
                     value: 15, child: Text('15 Minutes')),

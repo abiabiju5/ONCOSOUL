@@ -1,55 +1,23 @@
 import 'package:flutter/material.dart';
+import '../services/doctor_service.dart';
+import '../services/notification_service.dart';
+import '../models/app_user_session.dart';
 
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({super.key});
 
   @override
-  State<AppointmentsScreen> createState() => _AppointmentsPageState();
+  State<AppointmentsScreen> createState() => _AppointmentsScreenState();
 }
 
-class _AppointmentsPageState extends State<AppointmentsScreen>
+class _AppointmentsScreenState extends State<AppointmentsScreen>
     with SingleTickerProviderStateMixin {
+  final _service = DoctorService();
   late TabController _tabController;
-
   final TextEditingController _searchController = TextEditingController();
-  String searchQuery = "";
+  String _searchQuery = '';
 
-  List<Map<String, dynamic>> appointments = [
-    {
-      "patient": {
-        "name": "John Smith",
-        "age": "52",
-        "bloodGroup": "A+",
-        "diagnosis": "Stage II Lung Cancer",
-        "conditions": "Hypertension",
-        "allergies": "Penicillin",
-        "medications": "Amlodipine",
-        "notes": "Patient responding well to chemotherapy.",
-        "prescriptions": [],
-        "reports": [],
-      },
-      "date": DateTime.now(),
-      "time": const TimeOfDay(hour: 10, minute: 0),
-      "status": "Pending",
-    },
-    {
-      "patient": {
-        "name": "Emily Johnson",
-        "age": "45",
-        "bloodGroup": "B+",
-        "diagnosis": "Breast Cancer",
-        "conditions": "Diabetes",
-        "allergies": "None",
-        "medications": "Metformin",
-        "notes": "Monitoring blood sugar levels.",
-        "prescriptions": [],
-        "reports": [],
-      },
-      "date": DateTime.now().add(const Duration(days: 2)),
-      "time": const TimeOfDay(hour: 14, minute: 30),
-      "status": "Pending",
-    },
-  ];
+  static const Color _green = Color(0xFF2E7D32);
 
   @override
   void initState() {
@@ -64,106 +32,123 @@ class _AppointmentsPageState extends State<AppointmentsScreen>
     super.dispose();
   }
 
-  bool isSameDay(DateTime d1, DateTime d2) {
-    return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
-  }
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
-  // 🔹 STATISTICS
-  int get totalCount => appointments.length;
-  int get todayCount =>
-      appointments.where((a) => isSameDay(a["date"], DateTime.now())).length;
-  int get completedCount =>
-      appointments.where((a) => a["status"] == "Completed").length;
-  int get cancelledCount =>
-      appointments.where((a) => a["status"] == "Cancelled").length;
-  int get pendingCount =>
-      appointments.where((a) => a["status"] == "Pending").length;
-
-  // 🔹 FILTER + SEARCH
-  List<Map<String, dynamic>> getFilteredAppointments(String filter) {
-    DateTime today = DateTime.now();
-    List<Map<String, dynamic>> filtered;
-
-    switch (filter) {
-      case "Today":
-        filtered = appointments
-            .where((a) => isSameDay(a["date"], today) && a["status"] == "Pending")
+  List<DoctorAppointment> _filter(List<DoctorAppointment> all, String tab) {
+    final today = DateTime.now();
+    List<DoctorAppointment> result;
+    switch (tab) {
+      case 'Today':
+        result = all
+            .where((a) => _isSameDay(a.date, today) && a.status == 'Pending')
             .toList();
         break;
-      case "Upcoming":
-        filtered = appointments
-            .where((a) => a["date"].isAfter(today) && a["status"] == "Pending")
+      case 'Upcoming':
+        result = all
+            .where((a) => a.date.isAfter(today) && a.status == 'Pending')
             .toList();
         break;
-      case "Completed":
-        filtered = appointments.where((a) => a["status"] == "Completed").toList();
+      case 'Completed':
+        result = all.where((a) => a.status == 'Completed').toList();
         break;
-      case "Cancelled":
-        filtered = appointments.where((a) => a["status"] == "Cancelled").toList();
+      case 'Cancelled':
+        result = all.where((a) => a.status == 'Cancelled').toList();
         break;
       default:
-        filtered = appointments;
+        result = all;
     }
-
-    if (searchQuery.isNotEmpty) {
-      filtered = filtered
-          .where((a) => a["patient"]["name"]
-              .toString()
+    if (_searchQuery.isNotEmpty) {
+      result = result
+          .where((a) => a.patientName
               .toLowerCase()
-              .contains(searchQuery.toLowerCase()))
+              .contains(_searchQuery.toLowerCase()))
           .toList();
     }
-
-    return filtered;
+    return result;
   }
 
-  Color getStatusColor(String status) {
+  Color _statusColor(String status) {
     switch (status) {
-      case "Completed":
+      case 'Completed':
         return Colors.green;
-      case "Cancelled":
+      case 'Cancelled':
         return Colors.red;
       default:
         return Colors.orange;
     }
   }
 
-  void markAsCompleted(int index) {
-    setState(() {
-      appointments[index]["status"] = "Completed";
-    });
+  Future<void> _markCompleted(DoctorAppointment appt) async {
+    try {
+      await _service.markCompleted(appt.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Marked as completed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 
-  void cancelAppointment(int index) {
-    setState(() {
-      appointments[index]["status"] = "Cancelled";
-    });
+  Future<void> _cancel(DoctorAppointment appt) async {
+    final doctorName = AppUserSession.currentUser?.name ?? 'your doctor';
+    final dateStr = '${appt.date.day}/${appt.date.month}/${appt.date.year}';
+    try {
+      await _service.cancelAppointment(
+          appt.id, appt.patientId, appt.patientName, dateStr, appt.slot);
+      NotificationService.instance.addAppointmentCancellationForPatient(
+        doctor: 'Dr. $doctorName',
+        date: dateStr,
+        slot: appt.slot,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appointment cancelled')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 
-  Future<void> rescheduleAppointment(int index) async {
-    DateTime? newDate = await showDatePicker(
+  Future<void> _reschedule(DoctorAppointment appt) async {
+    final newDate = await showDatePicker(
       context: context,
-      initialDate: appointments[index]["date"],
-      firstDate: DateTime(2023),
+      initialDate: appt.date,
+      firstDate: DateTime.now(),
       lastDate: DateTime(2030),
     );
-    if (newDate == null) return;
-
-    if (!mounted) return;
-    TimeOfDay? newTime = await showTimePicker(
+    if (newDate == null || !mounted) return;
+    final newTime = await showTimePicker(
       context: context,
-      initialTime: appointments[index]["time"],
+      initialTime: TimeOfDay.fromDateTime(appt.date),
     );
-    if (newTime == null) return;
-
-    setState(() {
-      appointments[index]["date"] = newDate;
-      appointments[index]["time"] = newTime;
-      appointments[index]["status"] = "Pending";
-    });
+    if (newTime == null || !mounted) return;
+    final newSlot = newTime.format(context);
+    try {
+      await _service.rescheduleAppointment(appt.id, newDate, newSlot);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appointment rescheduled')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 
-  Widget buildStatCard(String title, int count, Color color) {
+  Widget _buildStatCard(String label, int count, Color color) {
     return Expanded(
       child: Card(
         color: color.withValues(alpha: 0.1),
@@ -173,10 +158,15 @@ class _AppointmentsPageState extends State<AppointmentsScreen>
             children: [
               Text(
                 count.toString(),
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+                style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: color),
               ),
               const SizedBox(height: 4),
-              Text(title),
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w500)),
             ],
           ),
         ),
@@ -184,64 +174,94 @@ class _AppointmentsPageState extends State<AppointmentsScreen>
     );
   }
 
-  Widget buildAppointmentList(String filter) {
-    final filtered = getFilteredAppointments(filter);
-
-    if (filtered.isEmpty) {
-      return const Center(child: Text("No appointments found."));
+  Widget _buildList(List<DoctorAppointment> all, String tab) {
+    final list = _filter(all, tab);
+    if (list.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.event_busy_rounded, size: 48, color: Colors.grey),
+            SizedBox(height: 12),
+            Text('No appointments found.',
+                style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      );
     }
-
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: filtered.length,
-      itemBuilder: (context, index) {
-        final appointment = filtered[index];
-        final originalIndex = appointments.indexOf(appointment);
-        final status = appointment["status"] as String;
-        final date = appointment["date"] as DateTime;
-        final time = appointment["time"] as TimeOfDay;
-        final patient = appointment["patient"];
-
+      itemCount: list.length,
+      itemBuilder: (context, i) {
+        final appt = list[i];
+        final dateStr =
+            '${appt.date.day}/${appt.date.month}/${appt.date.year}';
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14)),
           child: ListTile(
-            onTap: () {
-              // Navigation to patient details removed
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('View details for ${patient["name"]}')),
-              );
-            },
-            leading: const Icon(Icons.event),
-            title: Text(patient["name"]),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: CircleAvatar(
+              backgroundColor: _green.withValues(alpha: 0.12),
+              child: Text(
+                appt.patientName.isNotEmpty
+                    ? appt.patientName[0].toUpperCase()
+                    : '?',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, color: _green),
+              ),
+            ),
+            title: Text(appt.patientName,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("${date.day}/${date.month}/${date.year} at ${time.format(context)}"),
+                Text('$dateStr  •  ${appt.slot}'),
                 const SizedBox(height: 4),
-                Text(
-                  "Status: $status",
-                  style: TextStyle(color: getStatusColor(status), fontWeight: FontWeight.w600),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _statusColor(appt.status)
+                        .withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    appt.status,
+                    style: TextStyle(
+                        color: _statusColor(appt.status),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11),
+                  ),
                 ),
               ],
             ),
-            trailing: status == "Cancelled"
+            trailing: appt.status == 'Cancelled'
                 ? null
                 : PopupMenuButton<String>(
                     onSelected: (value) {
-                      if (value == "Complete") {
-                        markAsCompleted(originalIndex);
-                      } else if (value == "Reschedule") {
-                        rescheduleAppointment(originalIndex);
-                      } else if (value == "Cancel") {
-                        cancelAppointment(originalIndex);
+                      if (value == 'complete') {
+                        _markCompleted(appt);
+                      } else if (value == 'reschedule') {
+                        _reschedule(appt);
+                      } else if (value == 'cancel') {
+                        _cancel(appt);
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: "Complete", child: Text("Mark as Completed")),
-                      PopupMenuItem(value: "Reschedule", child: Text("Reschedule")),
-                      PopupMenuItem(
-                        value: "Cancel",
-                        child: Text("Cancel", style: TextStyle(color: Colors.red)),
+                    itemBuilder: (_) => [
+                      if (appt.status == 'Pending')
+                        const PopupMenuItem(
+                            value: 'complete',
+                            child: Text('Mark as Completed')),
+                      const PopupMenuItem(
+                          value: 'reschedule',
+                          child: Text('Reschedule')),
+                      const PopupMenuItem(
+                        value: 'cancel',
+                        child: Text('Cancel',
+                            style: TextStyle(color: Colors.red)),
                       ),
                     ],
                   ),
@@ -255,88 +275,107 @@ class _AppointmentsPageState extends State<AppointmentsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Appointments"),
-        backgroundColor: Colors.green,
+        title: const Text('Appointments'),
+        backgroundColor: _green,
+        foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
           tabs: const [
-            Tab(text: "All"),
-            Tab(text: "Today"),
-            Tab(text: "Upcoming"),
-            Tab(text: "Completed"),
-            Tab(text: "Cancelled"),
+            Tab(text: 'All'),
+            Tab(text: 'Today'),
+            Tab(text: 'Upcoming'),
+            Tab(text: 'Completed'),
+            Tab(text: 'Cancelled'),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          // 🔎 SEARCH BAR
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: "Search patient...",
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          setState(() {
-                            _searchController.clear();
-                            searchQuery = "";
-                          });
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      body: StreamBuilder<List<DoctorAppointment>>(
+        stream: _service.appointmentsStream(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('Error: ${snap.error}'));
+          }
+          final all = snap.data ?? [];
+          final today = DateTime.now();
+          final totalCount = all.length;
+          final todayCount =
+              all.where((a) => _isSameDay(a.date, today)).length;
+          final pendingCount =
+              all.where((a) => a.status == 'Pending').length;
+          final completedCount =
+              all.where((a) => a.status == 'Completed').length;
+          final cancelledCount =
+              all.where((a) => a.status == 'Cancelled').length;
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 8),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search patient...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => setState(() {
+                              _searchController.clear();
+                              _searchQuery = '';
+                            }),
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                ),
               ),
-              onChanged: (value) {
-                setState(() {
-                  searchQuery = value;
-                });
-              },
-            ),
-          ),
-
-          // 🔹 STATISTICS
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Column(
-              children: [
-                Row(
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
                   children: [
-                    buildStatCard("Total", totalCount, Colors.blue),
-                    buildStatCard("Today", todayCount, Colors.orange),
+                    Row(children: [
+                      _buildStatCard('Total', totalCount, Colors.blue),
+                      _buildStatCard('Today', todayCount, Colors.orange),
+                    ]),
+                    Row(children: [
+                      _buildStatCard(
+                          'Pending', pendingCount, Colors.orange),
+                      _buildStatCard(
+                          'Done', completedCount, Colors.green),
+                      _buildStatCard(
+                          'Cancelled', cancelledCount, Colors.red),
+                    ]),
                   ],
                 ),
-                Row(
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
                   children: [
-                    buildStatCard("Pending", pendingCount, Colors.orange),
-                    buildStatCard("Completed", completedCount, Colors.green),
-                    buildStatCard("Cancelled", cancelledCount, Colors.red),
+                    _buildList(all, 'All'),
+                    _buildList(all, 'Today'),
+                    _buildList(all, 'Upcoming'),
+                    _buildList(all, 'Completed'),
+                    _buildList(all, 'Cancelled'),
                   ],
                 ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                buildAppointmentList("All"),
-                buildAppointmentList("Today"),
-                buildAppointmentList("Upcoming"),
-                buildAppointmentList("Completed"),
-                buildAppointmentList("Cancelled"),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
