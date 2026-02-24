@@ -393,6 +393,86 @@ class _AppointmentDetailsPageState
               ),
 
             const SizedBox(height: 24),
+
+            // ── Quick Cancel ────────────────────────────────────────────
+            if (_status == 'Pending')
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.event_busy_rounded, size: 18),
+                  label: const Text('Cancel This Appointment'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade600,
+                    side: BorderSide(color: Colors.red.shade300),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => Dialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(mainAxisSize: MainAxisSize.min, children: [
+                            Container(padding: const EdgeInsets.all(14),
+                              decoration: const BoxDecoration(color: Color(0xFFFFEBEE), shape: BoxShape.circle),
+                              child: const Icon(Icons.event_busy_rounded, color: Colors.red, size: 26)),
+                            const SizedBox(height: 16),
+                            const Text('Cancel Appointment?',
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0D1B3E))),
+                            const SizedBox(height: 8),
+                            Text('This appointment with ${widget.patientName} will be cancelled.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 13, color: Colors.grey.shade500, height: 1.5)),
+                            const SizedBox(height: 22),
+                            Row(children: [
+                              Expanded(child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                    side: BorderSide(color: Colors.grey.shade300),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12)),
+                                onPressed: () => Navigator.pop(ctx),
+                                child: Text('Keep it', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                              )),
+                              const SizedBox(width: 10),
+                              Expanded(child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red.shade600, foregroundColor: Colors.white, elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12)),
+                                onPressed: () async {
+                                  Navigator.pop(ctx);
+                                  try {
+                                    await _service.cancelAppointment(
+                                      widget.appointmentId,
+                                      widget.patientId,
+                                      widget.patientName,
+                                      widget.date,
+                                      widget.time,
+                                      reason: 'Cancelled by doctor',
+                                    );
+                                    if (context.mounted) Navigator.pop(context);
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red));
+                                    }
+                                  }
+                                },
+                                child: const Text('Cancel it', style: TextStyle(fontWeight: FontWeight.w700)),
+                              )),
+                            ]),
+                          ]),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+            const SizedBox(height: 32),
           ],
         ),
       ),

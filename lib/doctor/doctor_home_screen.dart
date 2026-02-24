@@ -8,6 +8,7 @@ import 'consultations_page.dart';
 import 'patients_page.dart';
 import 'medical_report_page.dart';
 import 'doctor_profile_screen.dart';
+import 'analytics_screen.dart';
 
 
 
@@ -45,35 +46,6 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _selectedIndex, children: _screens),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (i) => setState(() => _selectedIndex = i),
-        backgroundColor: Colors.white,
-        indicatorColor: _lightGreen,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard_rounded, color: _green),
-            label: 'Dashboard',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month_rounded, color: _green),
-            label: 'Appointments',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.video_call_outlined),
-            selectedIcon: Icon(Icons.video_call_rounded, color: _green),
-            label: 'Consult',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.people_outline_rounded),
-            selectedIcon: Icon(Icons.people_rounded, color: _green),
-            label: 'Patients',
-          ),
-        ],
-      ),
     );
   }
 }
@@ -395,7 +367,7 @@ class _DoctorDashboardTabState extends State<_DoctorDashboardTab> {
                   ),
                   _quickAction(
                     icon: Icons.video_call_rounded,
-                    label: 'Online Consult',
+                    label: 'Online Consultations',
                     color: _green,
                     onTap: () => Navigator.push(
                         context,
@@ -420,7 +392,15 @@ class _DoctorDashboardTabState extends State<_DoctorDashboardTab> {
                         MaterialPageRoute(
                             builder: (_) => const MedicalReportsPage())),
                   ),
-
+                  _quickAction(
+                    icon: Icons.bar_chart_rounded,
+                    label: 'Analytics',
+                    color: Colors.indigo,
+                    onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const DoctorAnalyticsScreen())),
+                  ),
                 ],
               ),
             ),

@@ -532,10 +532,12 @@ class DoctorService {
   Stream<List<DoctorAppointment>> appointmentsStream() {
     return _appointments
         .where('doctorId', isEqualTo: _doctorId)
-        .orderBy('date', descending: false)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => a.date.compareTo(b.date));
+          return list;
+        });
   }
 
   /// Live stream — today's PENDING appointments (consultation queue).
@@ -546,12 +548,15 @@ class DoctorService {
     return _appointments
         .where('doctorId', isEqualTo: _doctorId)
         .where('status', isEqualTo: 'Pending')
-        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('date', isLessThan: Timestamp.fromDate(end))
-        .orderBy('date')
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs
+              .map((d) => DoctorAppointment.fromMap(d.id, d.data()))
+              .where((a) => !a.date.isBefore(start) && a.date.isBefore(end))
+              .toList();
+          list.sort((a, b) => a.date.compareTo(b.date));
+          return list;
+        });
   }
 
   /// Live stream — appointments by status (Pending | Completed | Cancelled).
@@ -559,23 +564,29 @@ class DoctorService {
     return _appointments
         .where('doctorId', isEqualTo: _doctorId)
         .where('status', isEqualTo: status)
-        .orderBy('date', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.date.compareTo(a.date));
+          return list;
+        });
   }
 
   /// Live stream — upcoming (future + pending) appointments.
   Stream<List<DoctorAppointment>> upcomingAppointmentsStream() {
-    final now = Timestamp.fromDate(DateTime.now());
+    final now = DateTime.now();
     return _appointments
         .where('doctorId', isEqualTo: _doctorId)
         .where('status', isEqualTo: 'Pending')
-        .where('date', isGreaterThanOrEqualTo: now)
-        .orderBy('date')
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs
+              .map((d) => DoctorAppointment.fromMap(d.id, d.data()))
+              .where((a) => a.date.isAfter(now))
+              .toList();
+          list.sort((a, b) => a.date.compareTo(b.date));
+          return list;
+        });
   }
 
   /// Live stream — all appointments for a specific patient with this doctor.
@@ -583,10 +594,12 @@ class DoctorService {
     return _appointments
         .where('doctorId', isEqualTo: _doctorId)
         .where('patientId', isEqualTo: patientId)
-        .orderBy('date', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => DoctorAppointment.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.date.compareTo(a.date));
+          return list;
+        });
   }
 
   /// Fetch a single appointment by Firestore document ID.
@@ -847,10 +860,12 @@ class DoctorService {
   Stream<List<FirestoreReport>> reportsForPatient(String patientId) {
     return _reports
         .where('patientId', isEqualTo: patientId)
-        .orderBy('uploadedAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => FirestoreReport.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => FirestoreReport.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+          return list;
+        });
   }
 
   /// Live stream — ALL reports uploaded by/for this doctor's patients.
@@ -916,11 +931,12 @@ class DoctorService {
         .where('patientId', isEqualTo: patientId)
         .where('uploadedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
         .where('uploadedAt', isLessThanOrEqualTo: Timestamp.fromDate(to))
-        .orderBy('uploadedAt', descending: true)
         .get();
-    return snap.docs
+    final list = snap.docs
         .map((d) => FirestoreReport.fromMap(d.id, d.data()))
         .toList();
+    list.sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    return list;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -931,20 +947,24 @@ class DoctorService {
   Stream<List<FirestoreSummary>> summariesForPatient(String patientId) {
     return _summaries
         .where('patientId', isEqualTo: patientId)
-        .orderBy('uploadedAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => FirestoreSummary.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => FirestoreSummary.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+          return list;
+        });
   }
 
   /// Live stream — ALL summaries by this doctor.
   Stream<List<FirestoreSummary>> allSummariesStream() {
     return _summaries
         .where('doctorName', isEqualTo: _doctorName)
-        .orderBy('uploadedAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => FirestoreSummary.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => FirestoreSummary.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+          return list;
+        });
   }
 
   /// Upload a consultation summary.
@@ -1076,10 +1096,12 @@ class DoctorService {
   Stream<List<ConsultationNote>> allNotesStream() {
     return _notes
         .where('doctorId', isEqualTo: _doctorId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => ConsultationNote.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => ConsultationNote.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        });
   }
 
   /// Live stream — all notes for a specific patient from this doctor.
@@ -1087,10 +1109,12 @@ class DoctorService {
     return _notes
         .where('doctorId', isEqualTo: _doctorId)
         .where('patientId', isEqualTo: patientId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => ConsultationNote.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => ConsultationNote.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1128,10 +1152,12 @@ class DoctorService {
   Stream<List<DoctorPrescription>> prescriptionsStream() {
     return _prescriptions
         .where('doctorId', isEqualTo: _doctorId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorPrescription.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => DoctorPrescription.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        });
   }
 
   /// Live stream — prescriptions for a specific patient by this doctor.
@@ -1140,10 +1166,12 @@ class DoctorService {
     return _prescriptions
         .where('doctorId', isEqualTo: _doctorId)
         .where('patientId', isEqualTo: patientId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((s) =>
-            s.docs.map((d) => DoctorPrescription.fromMap(d.id, d.data())).toList());
+        .map((s) {
+          final list = s.docs.map((d) => DoctorPrescription.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        });
   }
 
   /// Fetch the most recent prescription for a specific appointment.
@@ -1295,12 +1323,14 @@ class DoctorService {
   Stream<List<DoctorFirestoreNotification>> notificationsStream() {
     return _notifications
         .where('recipientId', isEqualTo: _doctorId)
-        .orderBy('createdAt', descending: true)
-        .limit(50)
         .snapshots()
-        .map((s) => s.docs
-            .map((d) => DoctorFirestoreNotification.fromMap(d.id, d.data()))
-            .toList());
+        .map((s) {
+          final list = s.docs
+              .map((d) => DoctorFirestoreNotification.fromMap(d.id, d.data()))
+              .toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list.take(50).toList();
+        });
   }
 
   /// Live stream — unread notification count (for badge).
@@ -1373,11 +1403,11 @@ class DoctorService {
     final end = start.add(const Duration(days: 1));
     final snap = await _appointments
         .where('doctorId', isEqualTo: _doctorId)
-        .where('status', isEqualTo: 'Pending')
         .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
         .where('date', isLessThan: Timestamp.fromDate(end))
         .get();
     return snap.docs
+        .where((d) => (d.data()['status'] as String?) == 'Pending')
         .map((d) => d.data()['slot'] as String? ?? '')
         .where((s) => s.isNotEmpty)
         .toList();
@@ -1650,7 +1680,6 @@ class DoctorService {
   Future<Map<String, int>> newPatientsPerMonth() async {
     final snap = await _appointments
         .where('doctorId', isEqualTo: _doctorId)
-        .orderBy('date')
         .get();
 
     final firstVisit = <String, DateTime>{};

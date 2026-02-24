@@ -46,6 +46,7 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
   String _endTime = '05:00 PM';
   int _slotDuration = 30;
   List<String> _blockedDates = [];
+  List<String> _blockedSlots = [];
 
   @override
   void initState() {
@@ -66,6 +67,7 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
         _endTime = avail.endTime;
         _slotDuration = avail.slotDurationMinutes;
         _blockedDates = List<String>.from(avail.blockedDates);
+        _blockedSlots = List<String>.from(avail.blockedSlots);
         _loading = false;
       });
     } catch (e) {
@@ -87,6 +89,7 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
         endTime: _endTime,
         slotDurationMinutes: _slotDuration,
         blockedDates: _blockedDates,
+        blockedSlots: _blockedSlots,
       );
       await _service.saveAvailability(avail);
       if (mounted) {
@@ -126,11 +129,81 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
     );
     if (picked != null) {
       final dateStr =
-          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+          '\${picked.year}-\${picked.month.toString().padLeft(2, '0')}-\${picked.day.toString().padLeft(2, '0')}';
       if (!_blockedDates.contains(dateStr)) {
         setState(() => _blockedDates.add(dateStr));
+        try {
+          await _service.blockDate(picked);
+        } catch (_) {}
       }
     }
+  }
+
+  Future<void> _pickAndBlockSlot() async {
+    // Step 1: pick a date
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(colorScheme: const ColorScheme.light(primary: _blue)),
+        child: child!,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    final dateStr = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+
+    // Step 2: pick a slot from a dialog
+    final slot = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select Slot to Block', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: _timeOptions.map((t) => ListTile(
+              dense: true,
+              title: Text(t, style: const TextStyle(fontSize: 13)),
+              onTap: () => Navigator.pop(ctx, t),
+            )).toList(),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel'))],
+      ),
+    );
+    if (slot == null) return;
+
+    final key = '$dateStr|$slot';
+    if (!_blockedSlots.contains(key)) {
+      setState(() => _blockedSlots.add(key));
+      try {
+        await _service.blockSlot(picked, slot);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _unblockSlot(String key) async {
+    setState(() => _blockedSlots.remove(key));
+    try {
+      final parts = key.split('|');
+      if (parts.length == 2) {
+        final dateParts = parts[0].split('-');
+        final date = DateTime(int.parse(dateParts[0]), int.parse(dateParts[1]), int.parse(dateParts[2]));
+        await _service.unblockSlot(date, parts[1]);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _unblockDate(String dateStr) async {
+    setState(() => _blockedDates.remove(dateStr));
+    try {
+      final parts = dateStr.split('-');
+      final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+      await _service.unblockDate(date);
+    } catch (_) {}
   }
 
   @override
@@ -304,8 +377,7 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
                                 trailing: IconButton(
                                   icon: const Icon(Icons.close_rounded,
                                       size: 18),
-                                  onPressed: () =>
-                                      setState(() => _blockedDates.remove(d)),
+                                  onPressed: () => _unblockDate(d),
                                 ),
                               )),
                         const SizedBox(height: 4),
@@ -318,6 +390,53 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
                             side: const BorderSide(color: _blue),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ]),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // ── Blocked Slots ─────────────────────────────────────
+                    _sectionHeader('Block Specific Slots'),
+                    const SizedBox(height: 4),
+                    Text('Block individual time slots on a specific date.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                    const SizedBox(height: 10),
+                    _card(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        if (_blockedSlots.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Row(children: [
+                              Icon(Icons.schedule_rounded, color: Colors.grey, size: 18),
+                              SizedBox(width: 8),
+                              Text('No slots blocked.', style: TextStyle(color: Colors.grey)),
+                            ]),
+                          )
+                        else
+                          ..._blockedSlots.map((s) {
+                            final parts = s.split('|');
+                            final label = parts.length == 2 ? '\${parts[0]}  •  \${parts[1]}' : s;
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.access_time_rounded, color: Colors.orange, size: 18),
+                              title: Text(label, style: const TextStyle(fontSize: 13)),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                onPressed: () => _unblockSlot(s),
+                              ),
+                            );
+                          }),
+                        const SizedBox(height: 4),
+                        OutlinedButton.icon(
+                          onPressed: _pickAndBlockSlot,
+                          icon: const Icon(Icons.more_time_rounded, size: 16),
+                          label: const Text('Block a Slot'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange.shade700,
+                            side: BorderSide(color: Colors.orange.shade400),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                         ),
                       ]),
