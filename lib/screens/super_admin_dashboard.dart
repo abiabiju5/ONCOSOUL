@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../login.dart';
 import 'admin_awareness_management_screen.dart';
 import 'admin_homestay_management_screen.dart';
-import '../models/app_user_session.dart';
+import '../models/app_user_session.dart' hide AppUser;
 import '../services/auth_service.dart';
 
 class SuperAdminDashboard extends StatefulWidget {
@@ -263,7 +263,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Text(
-                    'Super Admin',
+                    'System Administrator',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 11,

@@ -59,4 +59,5 @@ class DefaultFirebaseOptions {
     projectId: 'oncosoul-3ce80',
     storageBucket: 'oncosoul-3ce80.firebasestorage.app',
   );
+
 }

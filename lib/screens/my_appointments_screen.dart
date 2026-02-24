@@ -69,15 +69,19 @@ class MyAppointmentsScreen extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
+          const SizedBox(
             width: 80,
             height: 80,
-            decoration: BoxDecoration(
-              color: const Color(0xFFE3F2FD),
-              shape: BoxShape.circle,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Color(0xFFE3F2FD),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Icon(Icons.event_note_outlined,
+                    size: 38, color: deepBlue),
+              ),
             ),
-            child: const Icon(Icons.event_note_outlined,
-                size: 38, color: deepBlue),
           ),
           const SizedBox(height: 20),
           const Text(
@@ -122,7 +126,7 @@ class _AppointmentCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),

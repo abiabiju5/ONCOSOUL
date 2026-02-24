@@ -1,9 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'services/auth_service.dart';
+import 'services/auth_service.dart' hide AppUser;
 import 'models/app_user_session.dart';
 import 'screens/super_admin_dashboard.dart';
 import 'patient_dashboard.dart';
-import 'doctor_dashboard.dart';
+import 'doctor/doctor_home_screen.dart';
 import 'admin_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
@@ -53,7 +54,7 @@ class _LoginPageState extends State<LoginPage>
     super.dispose();
   }
 
-  // ── LOGIN LOGIC (unchanged) ──────────────────────────────────────
+  // ── LOGIN LOGIC ──────────────────────────────────────────────────────────
   Future<void> _handleLogin() async {
     final userId = _idController.text.trim();
     final password = _passwordController.text.trim();
@@ -68,30 +69,64 @@ class _LoginPageState extends State<LoginPage>
       _errorMessage = null;
     });
 
+    // 1. Authenticate (auth_service verifies credentials)
     final result = await _authService.login(userId, password);
-    setState(() => _isLoading = false);
 
     if (!result.success) {
+      setState(() => _isLoading = false);
       _showError(result.error ?? 'Login failed. Please try again.');
       return;
     }
 
-    final user = result.user!;
-    AppUserSession.currentUser = user;
+    // 2. Fetch the full Firestore user document into AppUserSession.
+    //    auth_service.AppUser only carries auth fields (no email/specialty/phone).
+    //    We need the extended AppUser from app_user_session for the doctor module.
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(result.user!.userId)
+          .get();
+
+      if (doc.exists) {
+        AppUserSession.fromDoc(doc);
+      } else {
+        // Fallback: build a minimal session from auth result
+        AppUserSession.set(AppUser(
+          userId: result.user!.userId,
+          name: result.user!.name,
+          email: '',
+          role: result.user!.role,
+          isActive: result.user!.isActive,
+        ));
+      }
+    } catch (_) {
+      // Fallback if Firestore fetch fails
+      AppUserSession.set(AppUser(
+        userId: result.user!.userId,
+        name: result.user!.name,
+        email: '',
+        role: result.user!.role,
+        isActive: result.user!.isActive,
+      ));
+    }
+
+    setState(() => _isLoading = false);
     if (!mounted) return;
 
-    switch (user.role) {
+    // 3. Navigate based on role
+    final role = result.user!.role;
+    switch (role) {
       case UserRole.patient:
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-              builder: (_) => PatientDashboard(userName: user.name)),
+              builder: (_) => PatientDashboard(userName: result.user!.name)),
         );
         break;
       case UserRole.doctor:
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const DoctorDashboard()),
+          MaterialPageRoute(builder: (_) => const DoctorHomeScreen()),
         );
         break;
       case UserRole.medicalStaff:
@@ -138,7 +173,7 @@ class _LoginPageState extends State<LoginPage>
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
 
-                  // ── LOGO — outside card, exactly as in screenshot ──
+                  // ── LOGO ──────────────────────────────────────────
                   Container(
                     width: 88,
                     height: 88,
@@ -166,7 +201,6 @@ class _LoginPageState extends State<LoginPage>
 
                   const SizedBox(height: 14),
 
-                  // ── Brand name ────────────────────────────────────
                   const Text(
                     'OncoSoul',
                     style: TextStyle(
@@ -177,7 +211,6 @@ class _LoginPageState extends State<LoginPage>
                     ),
                   ),
 
-                  // Underline accent — as seen in screenshot
                   const SizedBox(height: 6),
                   Container(
                     width: 48,
@@ -215,7 +248,6 @@ class _LoginPageState extends State<LoginPage>
                       mainAxisSize: MainAxisSize.min,
                       children: [
 
-                        // User ID label + field
                         _fieldLabel('User ID'),
                         const SizedBox(height: 6),
                         _inputField(
@@ -229,12 +261,10 @@ class _LoginPageState extends State<LoginPage>
 
                         const SizedBox(height: 18),
 
-                        // Password label + field
                         _fieldLabel('Password'),
                         const SizedBox(height: 6),
                         _passwordField(),
 
-                        // Error message
                         if (_errorMessage != null) ...[
                           const SizedBox(height: 14),
                           Container(
@@ -266,7 +296,6 @@ class _LoginPageState extends State<LoginPage>
 
                         const SizedBox(height: 22),
 
-                        // Sign In button — full width, rounded, deep blue
                         SizedBox(
                           width: double.infinity,
                           height: 50,
@@ -306,7 +335,6 @@ class _LoginPageState extends State<LoginPage>
 
                   const SizedBox(height: 24),
 
-                  // ── Secure login badge — as seen in screenshot ────
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 8),
@@ -348,7 +376,6 @@ class _LoginPageState extends State<LoginPage>
     );
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────
   Widget _fieldLabel(String text) {
     return Text(
       text,

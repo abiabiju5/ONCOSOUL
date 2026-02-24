@@ -26,7 +26,7 @@ class OnlineConsultationScreen extends StatelessWidget {
             subtitle: 'View your upcoming and past appointments',
             tag: 'Manage',
             tagColor: const Color(0xFF1565C0),
-            gradientColors: [Color(0xFF1565C0), Color(0xFF1E88E5)],
+            gradientColors: const [Color(0xFF1565C0), Color(0xFF1E88E5)],
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => MyAppointmentsScreen()),
@@ -40,7 +40,7 @@ class OnlineConsultationScreen extends StatelessWidget {
             subtitle: 'Schedule a new consultation with a doctor',
             tag: 'New',
             tagColor: const Color(0xFF0277BD),
-            gradientColors: [Color(0xFF0277BD), Color(0xFF039BE5)],
+            gradientColors: const [Color(0xFF0277BD), Color(0xFF039BE5)],
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => BookAppointmentScreen()),
@@ -107,7 +107,7 @@ class OnlineConsultationScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: deepBlue.withOpacity(0.28),
+            color: deepBlue.withValues(alpha: 0.28),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -123,7 +123,7 @@ class OnlineConsultationScreen extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Text(
@@ -163,7 +163,7 @@ class OnlineConsultationScreen extends StatelessWidget {
             width: 62,
             height: 62,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.12),
+              color: Colors.white.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -234,7 +234,7 @@ class _ConsultationCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: tagColor.withOpacity(0.10),
+              color: tagColor.withValues(alpha: 0.10),
               blurRadius: 16,
               offset: const Offset(0, 6),
             ),
@@ -253,7 +253,7 @@ class _ConsultationCard extends StatelessWidget {
                   height: 110,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: tagColor.withOpacity(0.06),
+                    color: tagColor.withValues(alpha: 0.06),
                   ),
                 ),
               ),
@@ -265,7 +265,7 @@ class _ConsultationCard extends StatelessWidget {
                   height: 80,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: tagColor.withOpacity(0.04),
+                    color: tagColor.withValues(alpha: 0.04),
                   ),
                 ),
               ),
@@ -288,7 +288,7 @@ class _ConsultationCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: tagColor.withOpacity(0.35),
+                            color: tagColor.withValues(alpha: 0.35),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -319,7 +319,7 @@ class _ConsultationCard extends StatelessWidget {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: tagColor.withOpacity(0.1),
+                                  color: tagColor.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(

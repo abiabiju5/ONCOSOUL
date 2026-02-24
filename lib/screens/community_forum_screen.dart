@@ -88,7 +88,7 @@ class CommunityForumScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: deepBlue.withOpacity(0.32),
+            color: deepBlue.withValues(alpha: 0.32),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -105,7 +105,7 @@ class CommunityForumScreen extends StatelessWidget {
               height: 90,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.07),
+                color: Colors.white.withValues(alpha: 0.07),
               ),
             ),
           ),
@@ -117,7 +117,7 @@ class CommunityForumScreen extends StatelessWidget {
               height: 70,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.white.withValues(alpha: 0.05),
               ),
             ),
           ),
@@ -128,7 +128,7 @@ class CommunityForumScreen extends StatelessWidget {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
+                  color: Colors.white.withValues(alpha: 0.18),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.volunteer_activism_rounded,
@@ -184,12 +184,12 @@ class CommunityForumScreen extends StatelessWidget {
         color: const Color(0xFF00695C),
         bg: const Color(0xFFE0F2F1),
       ),
-      _StatItem(
+      const _StatItem(
         label: 'Active',
         value: 'Today',
         icon: Icons.bolt_rounded,
-        color: const Color(0xFFE65100),
-        bg: const Color(0xFFFFF3E0),
+        color: Color(0xFFE65100),
+        bg: Color(0xFFFFF3E0),
       ),
     ];
 
@@ -210,7 +210,7 @@ class CommunityForumScreen extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(7),
                         decoration: BoxDecoration(
-                          color: s.color.withOpacity(0.14),
+                          color: s.color.withValues(alpha: 0.14),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(s.icon, size: 18, color: s.color),
@@ -230,7 +230,7 @@ class CommunityForumScreen extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
-                          color: s.color.withOpacity(0.75),
+                          color: s.color.withValues(alpha: 0.75),
                         ),
                       ),
                     ],
@@ -287,7 +287,7 @@ class CommunityForumScreen extends StatelessWidget {
           borderRadius: BorderRadius.circular(30),
           boxShadow: [
             BoxShadow(
-              color: deepBlue.withOpacity(0.35),
+              color: deepBlue.withValues(alpha: 0.35),
               blurRadius: 14,
               offset: const Offset(0, 5),
             ),
@@ -381,7 +381,7 @@ class _ForumPostCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: accent.withOpacity(0.08),
+            color: accent.withValues(alpha: 0.08),
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),
@@ -450,7 +450,7 @@ class _ForumPostCard extends StatelessWidget {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: gradient[0].withOpacity(0.3),
+                              color: gradient[0].withValues(alpha: 0.3),
                               blurRadius: 8,
                               offset: const Offset(0, 3),
                             ),
@@ -482,7 +482,7 @@ class _ForumPostCard extends StatelessWidget {
                             const SizedBox(height: 2),
                             Row(
                               children: [
-                                Icon(Icons.access_time_rounded,
+                                const Icon(Icons.access_time_rounded,
                                     size: 11,
                                     color: Colors.black38),
                                 const SizedBox(width: 3),
@@ -505,13 +505,13 @@ class _ForumPostCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              accent.withOpacity(0.12),
-                              accent.withOpacity(0.06),
+                              accent.withValues(alpha: 0.12),
+                              accent.withValues(alpha: 0.06),
                             ],
                           ),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: accent.withOpacity(0.2),
+                            color: accent.withValues(alpha: 0.2),
                             width: 1,
                           ),
                         ),
@@ -599,12 +599,12 @@ class _LikeChipState extends State<_LikeChip> {
             const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: _liked
-              ? widget.accent.withOpacity(0.12)
+              ? widget.accent.withValues(alpha: 0.12)
               : const Color(0xFFF0F4FC),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: _liked
-                ? widget.accent.withOpacity(0.35)
+                ? widget.accent.withValues(alpha: 0.35)
                 : Colors.transparent,
           ),
         ),

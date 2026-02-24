@@ -30,7 +30,10 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
   final _instructionsCtrl = TextEditingController();
 
   final List<Map<String, String>> _prescriptions = [];
+
+  bool _isSavingNotes = false;
   bool _isSavingPdf = false;
+  bool _notesLoading = true;
 
   bool _videoExpanded = true;
   bool _reportsExpanded = true;
@@ -41,9 +44,9 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
   late AnimationController _fadeCtrl;
   late Animation<double> _fadeAnim;
 
-  static const Color _green = Color(0xFF1B8A5A);
-  static const Color _lightGreen = Color(0xFFE8F5EE);
-  static const Color _bg = Color(0xFFFAFAFA);
+  static const Color _deepBlue2 = Color(0xFF0D47A1); // primary
+  static const Color _lightBlue2 = Color(0xFFE3F2FD);
+  static const Color _bg = Color(0xFFF0F4FF);
   static const Color _textPrimary = Color(0xFF1A1A2E);
   static const Color _textSecondary = Color(0xFF6B7280);
   static const Color _deepBlue = Color(0xFF0D47A1);
@@ -56,6 +59,22 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
         duration: const Duration(milliseconds: 600), vsync: this);
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     _fadeCtrl.forward();
+    _loadExistingNotes();
+  }
+
+  /// Pre-fill the notes field with any previously saved notes for this appointment.
+  Future<void> _loadExistingNotes() async {
+    try {
+      final saved =
+          await _service.fetchConsultationNotes(widget.appointmentId);
+      if (mounted) {
+        _remarksCtrl.text = saved;
+      }
+    } catch (_) {
+      // Non-fatal — field stays empty
+    } finally {
+      if (mounted) setState(() => _notesLoading = false);
+    }
   }
 
   @override
@@ -73,7 +92,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     if (_medicineCtrl.text.trim().isEmpty ||
         _dosageCtrl.text.trim().isEmpty ||
         _durationCtrl.text.trim().isEmpty) {
-      _snack('Please fill in all medicine fields.', isError: true);
+      _snack('Please fill in medicine name, dosage and duration.', isError: true);
       return;
     }
     setState(() {
@@ -91,29 +110,65 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     _snack('Medicine added to prescription.');
   }
 
+  /// Save notes to Firestore (upsert — one doc per appointment per doctor).
+  Future<void> _saveNotes() async {
+    final text = _remarksCtrl.text.trim();
+    if (text.isEmpty) {
+      _snack('Please enter some notes before saving.', isError: true);
+      return;
+    }
+    setState(() => _isSavingNotes = true);
+    try {
+      await _service.saveConsultationNotes(
+        appointmentId: widget.appointmentId,
+        patientId: widget.patientId,
+        patientName: widget.patientName,
+        notes: text,
+      );
+      _snack('Notes saved successfully!');
+    } catch (e) {
+      _snack('Failed to save notes: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isSavingNotes = false);
+    }
+  }
+
+  /// Generate PDF then also persist the prescription to Firestore.
   Future<void> _savePrescription() async {
     if (_prescriptions.isEmpty) {
-      _snack('No prescriptions to save.', isError: true);
+      _snack('Add at least one medicine before printing.', isError: true);
       return;
     }
     setState(() => _isSavingPdf = true);
     try {
       final doctorName = AppUserSession.currentUser?.name ?? 'Doctor';
+
+      // 1. Generate & print PDF
       final file = await PrescriptionPdfService.generatePrescriptionPdf(
         patientName: widget.patientName,
         doctorName: 'Dr. $doctorName',
         medicines: _prescriptions,
       );
       await PrescriptionPdfService.printPdf(file);
-      _snack('Prescription PDF generated successfully!');
-    } catch (_) {
-      _snack('Failed to generate PDF.', isError: true);
+
+      // 2. Persist to Firestore so the patient can see it later
+      await _service.savePrescription(
+        appointmentId: widget.appointmentId,
+        patientId: widget.patientId,
+        patientName: widget.patientName,
+        medicines: _prescriptions,
+      );
+
+      _snack('Prescription saved and PDF generated!');
+    } catch (e) {
+      _snack('Failed to generate prescription: $e', isError: true);
     } finally {
-      setState(() => _isSavingPdf = false);
+      if (mounted) setState(() => _isSavingPdf = false);
     }
   }
 
   void _snack(String msg, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Row(children: [
         Icon(isError ? Icons.error_rounded : Icons.check_circle_rounded,
@@ -121,7 +176,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
         const SizedBox(width: 10),
         Expanded(child: Text(msg, style: const TextStyle(fontSize: 13))),
       ]),
-      backgroundColor: isError ? Colors.red.shade600 : _green,
+      backgroundColor: isError ? Colors.red.shade600 : _deepBlue2,
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       duration: const Duration(seconds: 2),
@@ -134,7 +189,16 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
       backgroundColor: _bg,
       appBar: AppBar(
         title: Text('Consulting ${widget.patientName}'),
-        backgroundColor: _green,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF0D47A1), Color(0xFF1E88E5)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
@@ -143,11 +207,11 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Video section
+            // ── Video ──────────────────────────────────────────────────────
             _section(
               title: 'Video Consultation',
               icon: Icons.videocam_rounded,
-              color: _green,
+              color: _deepBlue2,
               isExpanded: _videoExpanded,
               onToggle: () => setState(() => _videoExpanded = !_videoExpanded),
               child: Container(
@@ -156,16 +220,18 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                 decoration: BoxDecoration(
                   color: Colors.black87,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _green, width: 2),
+                  border: Border.all(color: const Color(0xFF0D47A1), width: 2),
                 ),
                 child: const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.videocam_rounded, size: 60, color: Colors.white70),
+                      Icon(Icons.videocam_rounded,
+                          size: 60, color: Colors.white70),
                       SizedBox(height: 10),
                       Text('Video call in progress',
-                          style: TextStyle(color: Colors.white70, fontSize: 14)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 14)),
                     ],
                   ),
                 ),
@@ -174,7 +240,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
 
             const SizedBox(height: 16),
 
-            // Medical Reports
+            // ── Medical Reports (live Firestore stream) ────────────────────
             _section(
               title: 'Medical Reports',
               icon: Icons.description_rounded,
@@ -204,7 +270,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
 
             const SizedBox(height: 16),
 
-            // Offline Summaries
+            // ── Previous Consultations (live Firestore stream) ─────────────
             _section(
               title: 'Previous Consultations',
               icon: Icons.history_rounded,
@@ -234,56 +300,60 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
 
             const SizedBox(height: 16),
 
-            // Doctor Notes
+            // ── Doctor Notes (saves to Firestore) ─────────────────────────
             _section(
               title: 'Doctor Notes',
               icon: Icons.edit_note_rounded,
-              color: _green,
+              color: _deepBlue2,
               isExpanded: _notesExpanded,
-              onToggle: () => setState(() => _notesExpanded = !_notesExpanded),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _remarksCtrl,
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      hintText: 'Enter consultation notes…',
-                      filled: true,
-                      fillColor: _lightGreen,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
+              onToggle: () =>
+                  setState(() => _notesExpanded = !_notesExpanded),
+              child: _notesLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                      children: [
+                        TextField(
+                          controller: _remarksCtrl,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            hintText: 'Enter consultation notes…',
+                            filled: true,
+                            fillColor: _lightBlue2,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: _isSavingNotes
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2))
+                                : const Icon(Icons.save_rounded, size: 16),
+                            label: Text(
+                                _isSavingNotes ? 'Saving…' : 'Save Notes'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _deepBlue2,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: _isSavingNotes ? null : _saveNotes,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.save_rounded, size: 16),
-                      label: const Text('Save Notes'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: () {
-                        if (_remarksCtrl.text.trim().isEmpty) {
-                          _snack('Please enter some notes.', isError: true);
-                        } else {
-                          _snack('Notes saved!');
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
             ),
 
             const SizedBox(height: 16),
 
-            // Prescription
+            // ── Prescription (saves PDF + Firestore) ───────────────────────
             _section(
               title: 'Prescription',
               icon: Icons.medication_rounded,
@@ -306,7 +376,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                               style: const TextStyle(
                                   fontWeight: FontWeight.w700)),
                           subtitle: Text(
-                              '${p['dosage']}  •  ${p['duration']}${p['instructions']!.isNotEmpty ? '\n${p['instructions']}' : ''}'),
+                              '${p['dosage']}  •  ${p['duration']}'
+                              '${p['instructions']!.isNotEmpty ? '\n${p['instructions']}' : ''}'),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete_rounded,
                                 color: Colors.red),
@@ -347,11 +418,13 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                       child: ElevatedButton.icon(
                         icon: _isSavingPdf
                             ? const SizedBox(
-                                width: 14, height: 14,
+                                width: 14,
+                                height: 14,
                                 child: CircularProgressIndicator(
                                     color: Colors.white, strokeWidth: 2))
                             : const Icon(Icons.print_rounded, size: 16),
-                        label: Text(_isSavingPdf ? 'Generating…' : 'Print PDF'),
+                        label: Text(
+                            _isSavingPdf ? 'Saving…' : 'Save & Print PDF'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF7B1FA2),
                           foregroundColor: Colors.white,
@@ -372,6 +445,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
       ),
     );
   }
+
+  // ── Reusable widgets ───────────────────────────────────────────────────────
 
   Widget _field(TextEditingController ctrl, String hint, IconData icon) {
     return TextField(
@@ -411,11 +486,13 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
             borderRadius: BorderRadius.circular(16),
             onTap: onToggle,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
                   Container(
-                    width: 32, height: 32,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -473,14 +550,17 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                         fontWeight: FontWeight.w600, fontSize: 13)),
                 const SizedBox(height: 2),
                 Text(
-                  'Uploaded: ${r.uploadedAt.day}/${r.uploadedAt.month}/${r.uploadedAt.year}  •  ${r.uploadedBy}',
-                  style: const TextStyle(fontSize: 11, color: _textSecondary),
+                  '${r.labName.isNotEmpty ? '${r.labName}  •  ' : ''}'
+                  '${r.uploadedAt.day}/${r.uploadedAt.month}/${r.uploadedAt.year}'
+                  '  •  ${r.uploadedBy}',
+                  style: const TextStyle(
+                      fontSize: 11, color: _textSecondary),
                 ),
                 if (r.notes.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(r.notes,
-                      style:
-                          const TextStyle(fontSize: 12, color: _textPrimary)),
+                      style: const TextStyle(
+                          fontSize: 12, color: _textPrimary)),
                 ],
               ],
             ),
@@ -502,7 +582,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: _deepBlue.withValues(alpha: 0.08),
               borderRadius:
@@ -543,7 +624,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _sRow(Icons.medical_services_outlined, 'Doctor', s.doctorName),
+                _sRow(Icons.medical_services_outlined, 'Doctor',
+                    s.doctorName),
                 const Divider(height: 16),
                 _sRow(Icons.report_problem_outlined, 'Chief Complaint',
                     s.chiefComplaint),
@@ -584,7 +666,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                               const SizedBox(height: 4),
                               Text(s.nurseNotes,
                                   style: const TextStyle(
-                                      fontSize: 12, color: _textPrimary)),
+                                      fontSize: 12,
+                                      color: _textPrimary)),
                             ],
                           ),
                         ),
@@ -621,7 +704,8 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                       color: _textSecondary)),
               const SizedBox(height: 2),
               Text(value,
-                  style: const TextStyle(fontSize: 13, color: _textPrimary)),
+                  style: const TextStyle(
+                      fontSize: 13, color: _textPrimary)),
             ],
           ),
         ),

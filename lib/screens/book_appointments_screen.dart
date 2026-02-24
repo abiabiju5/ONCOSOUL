@@ -227,7 +227,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -302,7 +302,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -426,7 +426,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -536,7 +536,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -568,7 +568,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         border: Border(top: BorderSide(color: Colors.grey.shade100)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 12,
             offset: const Offset(0, -4),
           ),
@@ -671,6 +671,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         selectedDate.day == DateTime.now().day) {
       notif.addAppointmentReminder(
         doctor: selectedDoctor!,
+        date: dateKey,
         slot: selectedSlot!,
       );
     }
@@ -729,7 +730,7 @@ class _SlotChip extends StatelessWidget {
     } else {
       bg = Colors.white;
       text = const Color(0xFF0D1B3E);
-      border = accentColor.withOpacity(0.25);
+      border = accentColor.withValues(alpha: 0.25);
     }
 
     return GestureDetector(
@@ -744,7 +745,7 @@ class _SlotChip extends StatelessWidget {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: accentColor.withOpacity(0.25),
+                    color: accentColor.withValues(alpha: 0.25),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   )
