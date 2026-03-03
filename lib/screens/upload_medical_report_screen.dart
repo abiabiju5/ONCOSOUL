@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -31,6 +32,9 @@ class _UploadMedicalReportScreenState
   PlatformFile? _pickedFile;
   double? _uploadProgress; // null = not uploading, 0‒1 = progress
 
+  static const int _maxFileSizeBytes = 10 * 1024 * 1024; // 10 MB hard limit
+  static const int _imageQuality = 75; // JPEG/PNG compress to 75% quality
+
   static const Color _deepBlue = Color(0xFF0D47A1);
   static const Color _lightBlue = Color(0xFFE8F0FE);
   static const Color _textSecondary = Color(0xFF6B7280);
@@ -62,32 +66,74 @@ class _UploadMedicalReportScreenState
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-      withData: false,
+      withData: true,
       withReadStream: false,
     );
 
     if (result != null && result.files.isNotEmpty) {
-      setState(() => _pickedFile = result.files.first);
+      final file = result.files.first;
+
+      // Reject files over the hard limit before doing any work
+      if (file.size > _maxFileSizeBytes) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'File is too large (${_formatBytes(file.size)}). Maximum allowed size is 10 MB.'),
+          backgroundColor: Colors.orange.shade700,
+        ));
+        return;
+      }
+
+      setState(() => _pickedFile = file);
     }
   }
 
   void _removeFile() => setState(() => _pickedFile = null);
 
+  // ── Compress image bytes (JPG / PNG only) ─────────────────────────────────
+  Future<Uint8List> _compressImageBytes(Uint8List input, String ext) async {
+    try {
+      final codec = await ui.instantiateImageCodec(
+        input,
+        targetWidth: 1600, // cap long edge at 1600 px — preserves detail
+      );
+      final frame = await codec.getNextFrame();
+      final format = ext.toLowerCase() == 'png'
+          ? ui.ImageByteFormat.png
+          : ui.ImageByteFormat.rawRgba; // JPEG not directly available in dart:ui
+      final byteData = await frame.image.toByteData(format: format);
+      frame.image.dispose();
+      if (byteData == null) return input; // fall back to original if it fails
+      return byteData.buffer.asUint8List();
+    } catch (_) {
+      return input; // never block the upload due to compression failure
+    }
+  }
+
   // ── Upload file to Firebase Storage, return download URL ──────────────────
   Future<String?> _uploadFileToStorage(String patientId) async {
     if (_pickedFile == null) return null;
 
-    final file = File(_pickedFile!.path!);
-    final ext = _pickedFile!.extension ?? 'pdf';
+    final ext = _pickedFile!.extension?.toLowerCase() ?? 'pdf';
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final storagePath =
         'medical_reports/$patientId/${timestamp}_${_pickedFile!.name}';
 
     final ref = FirebaseStorage.instance.ref().child(storagePath);
-    final uploadTask = ref.putFile(
-      file,
-      SettableMetadata(contentType: _mimeType(ext)),
-    );
+    final metadata = SettableMetadata(contentType: _mimeType(ext));
+
+    var bytes = _pickedFile!.bytes;
+    if (bytes == null) {
+      throw Exception('Could not read file bytes. Please re-select the file.');
+    }
+
+    // Compress images before upload to cut transfer size significantly
+    if (ext == 'jpg' || ext == 'jpeg' || ext == 'png') {
+      setState(() => _uploadProgress = 0); // show spinner while compressing
+      bytes = await _compressImageBytes(bytes, ext);
+    }
+
+    final UploadTask uploadTask = ref.putData(bytes, metadata);
 
     // Track upload progress
     uploadTask.snapshotEvents.listen((snapshot) {

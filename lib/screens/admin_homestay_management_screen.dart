@@ -1,6 +1,5 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -22,16 +21,18 @@ class _AdminHomestayManagementScreenState
   final _lngCtrl      = TextEditingController();
   final _rateCtrl     = TextEditingController();
 
-  File?   _pickedImage;
+  Uint8List? _pickedImageBytes;
+  String?    _pickedImageName;
   bool    _saving = false;
   double? _uploadProgress;
+  String? _errorMessage;
 
   final ImagePicker _picker = ImagePicker();
 
-  static const Color deepBlue    = Color(0xFF0D47A1);
-  static const Color mediumBlue  = Color(0xFF1565C0);
-  static const Color lightBlue   = Color(0xFFE3F2FD);
-  static const Color accentBlue  = Color(0xFF42A5F5);
+  static const Color deepBlue     = Color(0xFF0D47A1);
+  static const Color mediumBlue   = Color(0xFF1565C0);
+  static const Color lightBlue    = Color(0xFFE3F2FD);
+  static const Color accentBlue   = Color(0xFF42A5F5);
   static const Color surfaceWhite = Color(0xFFF8FBFF);
 
   final _col = FirebaseFirestore.instance.collection('homestays');
@@ -60,13 +61,25 @@ class _AdminHomestayManagementScreenState
               Expanded(child: _srcTile(Icons.photo_library_rounded, 'Gallery', () async {
                 Navigator.pop(ctx);
                 final f = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-                if (f != null) setState(() => _pickedImage = File(f.path));
+                if (f != null) {
+                  final bytes = await f.readAsBytes();
+                  setState(() {
+                    _pickedImageBytes = bytes;
+                    _pickedImageName  = f.name;
+                  });
+                }
               })),
               const SizedBox(width: 12),
               Expanded(child: _srcTile(Icons.camera_alt_rounded, 'Camera', () async {
                 Navigator.pop(ctx);
                 final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-                if (f != null) setState(() => _pickedImage = File(f.path));
+                if (f != null) {
+                  final bytes = await f.readAsBytes();
+                  setState(() {
+                    _pickedImageBytes = bytes;
+                    _pickedImageName  = f.name;
+                  });
+                }
               })),
             ]),
           ]),
@@ -75,9 +88,9 @@ class _AdminHomestayManagementScreenState
     );
   }
 
-  Widget _srcTile(IconData icon, String label, VoidCallback onTap) {
+  Widget _srcTile(IconData icon, String label, Future<void> Function() onTap) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () { onTap(); },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
@@ -94,31 +107,45 @@ class _AdminHomestayManagementScreenState
   }
 
   Future<String?> _uploadImage() async {
-    if (_pickedImage == null) return null;
-    final ref = FirebaseStorage.instance
-        .ref()
-        .child('homestay_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
-    final task = ref.putFile(_pickedImage!, SettableMetadata(contentType: 'image/jpeg'));
-    task.snapshotEvents.listen((s) {
-      if (mounted) setState(() => _uploadProgress = s.bytesTransferred / s.totalBytes);
-    });
-    final snap = await task;
-    setState(() => _uploadProgress = null);
-    return await snap.ref.getDownloadURL();
+    if (_pickedImageBytes == null) return null;
+    try {
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('homestay_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      final task = ref.putData(_pickedImageBytes!, SettableMetadata(contentType: 'image/jpeg'));
+      task.snapshotEvents.listen((s) {
+        if (mounted) setState(() => _uploadProgress = s.bytesTransferred / s.totalBytes);
+      });
+      final snap = await task;
+      setState(() => _uploadProgress = null);
+      return await snap.ref.getDownloadURL();
+    } catch (e) {
+      setState(() => _uploadProgress = null);
+      rethrow;
+    }
   }
 
   Future<void> _addHomestay() async {
+    setState(() => _errorMessage = null);
+
     if (_nameCtrl.text.trim().isEmpty || _locationCtrl.text.trim().isEmpty ||
         _contactCtrl.text.trim().isEmpty || _rateCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Please fill in all required fields'),
-        backgroundColor: Colors.red, behavior: SnackBarBehavior.floating,
-      ));
+      setState(() => _errorMessage = 'Please fill in all required fields (Name, Location, Contact, Rate).');
       return;
     }
+
     setState(() => _saving = true);
     try {
-      final imageUrl = await _uploadImage();
+      // Try image upload separately — if it fails, still save to Firestore without image
+      String imageUrl = '';
+      if (_pickedImageBytes != null) {
+        try {
+          imageUrl = await _uploadImage() ?? '';
+        } catch (uploadErr) {
+          setState(() => _errorMessage = 'Image upload failed: $uploadErr\nSaving homestay without image…');
+        }
+      }
+
       await _col.add({
         'name':      _nameCtrl.text.trim(),
         'location':  _locationCtrl.text.trim(),
@@ -126,22 +153,29 @@ class _AdminHomestayManagementScreenState
         'lat':       double.tryParse(_latCtrl.text.trim()) ?? 0.0,
         'lng':       double.tryParse(_lngCtrl.text.trim()) ?? 0.0,
         'rate':      double.tryParse(_rateCtrl.text.trim()) ?? 0.0,
-        'imageUrl':  imageUrl ?? '',
+        'imageUrl':  imageUrl,
         'createdAt': FieldValue.serverTimestamp(),
       });
+
       for (final c in [_nameCtrl, _locationCtrl, _contactCtrl, _latCtrl, _lngCtrl, _rateCtrl]) {
         c.clear();
       }
-      setState(() => _pickedImage = null);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Homestay added successfully'),
-        backgroundColor: Colors.green, behavior: SnackBarBehavior.floating,
-      ));
+      setState(() {
+        _pickedImageBytes = null;
+        _pickedImageName  = null;
+        _errorMessage     = null;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Homestay added successfully ✓'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 4),
+        ));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Failed: $e'),
-        backgroundColor: Colors.red, behavior: SnackBarBehavior.floating,
-      ));
+      setState(() => _errorMessage = 'Save failed: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -181,7 +215,6 @@ class _AdminHomestayManagementScreenState
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(20))),
       ),
       body: Column(children: [
-        // ── Form ──────────────────────────────────────────────────────
         Expanded(
           child: SingleChildScrollView(
             child: Column(children: [
@@ -232,19 +265,19 @@ class _AdminHomestayManagementScreenState
                         const Icon(Icons.image_rounded, color: accentBlue, size: 20),
                         const SizedBox(width: 8),
                         Expanded(child: Text(
-                          _pickedImage != null ? _pickedImage!.path.split('/').last : 'Tap to pick image (optional)',
-                          style: TextStyle(fontSize: 13, color: _pickedImage != null ? Colors.black87 : Colors.grey),
+                          _pickedImageName ?? 'Tap to pick image (optional)',
+                          style: TextStyle(fontSize: 13, color: _pickedImageBytes != null ? Colors.black87 : Colors.grey),
                           overflow: TextOverflow.ellipsis,
                         )),
                         const Icon(Icons.upload_rounded, color: deepBlue, size: 20),
                       ]),
                     ),
                   ),
-                  if (_pickedImage != null) ...[
+                  if (_pickedImageBytes != null) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.file(_pickedImage!, height: 110, width: double.infinity, fit: BoxFit.cover),
+                      child: Image.memory(_pickedImageBytes!, height: 110, width: double.infinity, fit: BoxFit.cover),
                     ),
                   ],
                   if (_uploadProgress != null) ...[
@@ -252,6 +285,29 @@ class _AdminHomestayManagementScreenState
                     LinearProgressIndicator(value: _uploadProgress,
                         backgroundColor: Colors.grey.shade200,
                         valueColor: const AlwaysStoppedAnimation(deepBlue)),
+                  ],
+                  // ── Inline error box ────────────────────────────────
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFEBEE),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_errorMessage!,
+                            style: const TextStyle(color: Colors.red, fontSize: 12))),
+                        GestureDetector(
+                          onTap: () => setState(() => _errorMessage = null),
+                          child: const Icon(Icons.close, color: Colors.red, size: 16),
+                        ),
+                      ]),
+                    ),
                   ],
                   const SizedBox(height: 18),
                   SizedBox(
@@ -290,6 +346,13 @@ class _AdminHomestayManagementScreenState
                     return const Padding(
                       padding: EdgeInsets.all(20),
                       child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (snap.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Center(child: Text('Error loading: ${snap.error}',
+                          style: const TextStyle(color: Colors.red))),
                     );
                   }
                   final docs = snap.data?.docs ?? [];

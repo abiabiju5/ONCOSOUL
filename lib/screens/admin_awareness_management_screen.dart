@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
@@ -19,14 +19,16 @@ class _AdminAwarenessManagementScreenState
   final _categoryCtrl    = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
-  File?   _pickedImage;
+  Uint8List? _pickedImageBytes;
+  String?    _pickedImageName;
   bool    _saving = false;
   double? _uploadProgress;
+  String? _errorMessage; // ← shows error inline so it can't be missed
 
-  static const Color deepBlue    = Color(0xFF0D47A1);
-  static const Color mediumBlue  = Color(0xFF1565C0);
-  static const Color lightBlue   = Color(0xFFE3F2FD);
-  static const Color accentBlue  = Color(0xFF42A5F5);
+  static const Color deepBlue     = Color(0xFF0D47A1);
+  static const Color mediumBlue   = Color(0xFF1565C0);
+  static const Color lightBlue    = Color(0xFFE3F2FD);
+  static const Color accentBlue   = Color(0xFF42A5F5);
   static const Color surfaceWhite = Color(0xFFF8FBFF);
 
   final _collection = FirebaseFirestore.instance.collection('awareness_content');
@@ -55,13 +57,25 @@ class _AdminAwarenessManagementScreenState
               Expanded(child: _sourceOption(Icons.photo_library_rounded, 'Gallery', () async {
                 Navigator.pop(ctx);
                 final f = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-                if (f != null) setState(() => _pickedImage = File(f.path));
+                if (f != null) {
+                  final bytes = await f.readAsBytes();
+                  setState(() {
+                    _pickedImageBytes = bytes;
+                    _pickedImageName  = f.name;
+                  });
+                }
               })),
               const SizedBox(width: 12),
               Expanded(child: _sourceOption(Icons.camera_alt_rounded, 'Camera', () async {
                 Navigator.pop(ctx);
                 final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-                if (f != null) setState(() => _pickedImage = File(f.path));
+                if (f != null) {
+                  final bytes = await f.readAsBytes();
+                  setState(() {
+                    _pickedImageBytes = bytes;
+                    _pickedImageName  = f.name;
+                  });
+                }
               })),
             ]),
           ]),
@@ -90,55 +104,76 @@ class _AdminAwarenessManagementScreenState
   }
 
   Future<String?> _uploadImage() async {
-    if (_pickedImage == null) return null;
-    final ref = FirebaseStorage.instance
-        .ref()
-        .child('awareness_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
-    final task = ref.putFile(_pickedImage!, SettableMetadata(contentType: 'image/jpeg'));
-    task.snapshotEvents.listen((s) {
-      if (mounted) setState(() => _uploadProgress = s.bytesTransferred / s.totalBytes);
-    });
-    final snap = await task;
-    setState(() => _uploadProgress = null);
-    return await snap.ref.getDownloadURL();
+    if (_pickedImageBytes == null) return null;
+    try {
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('awareness_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      final task = ref.putData(_pickedImageBytes!, SettableMetadata(contentType: 'image/jpeg'));
+      task.snapshotEvents.listen((s) {
+        if (mounted) setState(() => _uploadProgress = s.bytesTransferred / s.totalBytes);
+      });
+      final snap = await task;
+      setState(() => _uploadProgress = null);
+      return await snap.ref.getDownloadURL();
+    } catch (e) {
+      setState(() => _uploadProgress = null);
+      // Re-throw so _addContent can catch and show the exact error
+      rethrow;
+    }
   }
 
   Future<void> _addContent() async {
+    setState(() => _errorMessage = null);
+
     if (_titleCtrl.text.trim().isEmpty ||
         _descriptionCtrl.text.trim().isEmpty ||
         _categoryCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Please fill in all fields'),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ));
+      setState(() => _errorMessage = 'Please fill in Title, Category and Description.');
       return;
     }
+
     setState(() => _saving = true);
     try {
-      final imageUrl = await _uploadImage();
+      // Upload image first (if any). If it fails, we still save to Firestore with empty imageUrl.
+      String imageUrl = '';
+      if (_pickedImageBytes != null) {
+        try {
+          imageUrl = await _uploadImage() ?? '';
+        } catch (uploadErr) {
+          // Show warning but don't block the Firestore save
+          setState(() => _errorMessage = 'Image upload failed: $uploadErr\nSaving content without image…');
+        }
+      }
+
       await _collection.add({
         'title':       _titleCtrl.text.trim(),
         'description': _descriptionCtrl.text.trim(),
         'category':    _categoryCtrl.text.trim(),
-        'imageUrl':    imageUrl ?? '',
+        'imageUrl':    imageUrl,
         'createdAt':   FieldValue.serverTimestamp(),
       });
+
       _titleCtrl.clear();
       _descriptionCtrl.clear();
       _categoryCtrl.clear();
-      setState(() => _pickedImage = null);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Content added successfully'),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ));
+      setState(() {
+        _pickedImageBytes = null;
+        _pickedImageName  = null;
+        _errorMessage     = null;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Content added successfully ✓'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 4),
+        ));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Failed: $e'),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ));
+      // This catches Firestore write failures — show inline so user can read full error
+      setState(() => _errorMessage = 'Save failed: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -180,7 +215,7 @@ class _AdminAwarenessManagementScreenState
       body: Column(children: [
         // ── Form ──────────────────────────────────────────────────────
         Container(
-          margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+          margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -198,7 +233,7 @@ class _AdminAwarenessManagementScreenState
             const SizedBox(height: 12),
             _field(_categoryCtrl, 'Category', Icons.category_rounded),
             const SizedBox(height: 12),
-            // Image picker
+            // Image picker row
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(
                 child: GestureDetector(
@@ -215,8 +250,8 @@ class _AdminAwarenessManagementScreenState
                       const Icon(Icons.image_rounded, color: accentBlue, size: 20),
                       const SizedBox(width: 8),
                       Expanded(child: Text(
-                        _pickedImage != null ? _pickedImage!.path.split('/').last : 'Tap to pick image',
-                        style: TextStyle(fontSize: 13, color: _pickedImage != null ? Colors.black87 : Colors.grey),
+                        _pickedImageName ?? 'Tap to pick image',
+                        style: TextStyle(fontSize: 13, color: _pickedImageBytes != null ? Colors.black87 : Colors.grey),
                         overflow: TextOverflow.ellipsis,
                       )),
                     ]),
@@ -234,18 +269,44 @@ class _AdminAwarenessManagementScreenState
               ),
             ]),
             // Image preview
-            if (_pickedImage != null) ...[
+            if (_pickedImageBytes != null) ...[
               const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.file(_pickedImage!, height: 110, width: double.infinity, fit: BoxFit.cover),
+                child: Image.memory(_pickedImageBytes!, height: 110, width: double.infinity, fit: BoxFit.cover),
               ),
             ],
             // Upload progress
             if (_uploadProgress != null) ...[
               const SizedBox(height: 8),
-              LinearProgressIndicator(value: _uploadProgress, backgroundColor: Colors.grey.shade200,
-                  valueColor: const AlwaysStoppedAnimation(deepBlue)),
+              LinearProgressIndicator(
+                value: _uploadProgress,
+                backgroundColor: Colors.grey.shade200,
+                valueColor: const AlwaysStoppedAnimation(deepBlue),
+              ),
+            ],
+            // ── Inline error box ──────────────────────────────────────
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEE),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_errorMessage!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12))),
+                  GestureDetector(
+                    onTap: () => setState(() => _errorMessage = null),
+                    child: const Icon(Icons.close, color: Colors.red, size: 16),
+                  ),
+                ]),
+              ),
             ],
             const SizedBox(height: 12),
             _field(_descriptionCtrl, 'Description', Icons.description_rounded, maxLines: 3),
@@ -283,6 +344,10 @@ class _AdminAwarenessManagementScreenState
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return Center(child: Text('Error loading: ${snap.error}',
+                    style: const TextStyle(color: Colors.red)));
               }
               final docs = snap.data?.docs ?? [];
               if (docs.isEmpty) {
