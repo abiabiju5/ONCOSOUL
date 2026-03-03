@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import '../models/awareness_model.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class AdminAwarenessManagementScreen extends StatefulWidget {
   const AdminAwarenessManagementScreen({super.key});
@@ -13,119 +14,63 @@ class AdminAwarenessManagementScreen extends StatefulWidget {
 
 class _AdminAwarenessManagementScreenState
     extends State<AdminAwarenessManagementScreen> {
-  final titleController = TextEditingController();
-  final descriptionController = TextEditingController();
-  final categoryController = TextEditingController();
-  final imageController = TextEditingController();
+  final _titleCtrl       = TextEditingController();
+  final _descriptionCtrl = TextEditingController();
+  final _categoryCtrl    = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
+  File?   _pickedImage;
+  bool    _saving = false;
+  double? _uploadProgress;
 
-  // Color theme
-  static const Color deepBlue = Color(0xFF0D47A1);
-  static const Color mediumBlue = Color(0xFF1565C0);
-  static const Color lightBlue = Color(0xFFE3F2FD);
-  static const Color accentBlue = Color(0xFF42A5F5);
+  static const Color deepBlue    = Color(0xFF0D47A1);
+  static const Color mediumBlue  = Color(0xFF1565C0);
+  static const Color lightBlue   = Color(0xFFE3F2FD);
+  static const Color accentBlue  = Color(0xFF42A5F5);
   static const Color surfaceWhite = Color(0xFFF8FBFF);
 
-  InputDecoration _inputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(
-        color: mediumBlue,
-        fontWeight: FontWeight.w500,
-        fontSize: 14,
-      ),
-      prefixIcon: Icon(icon, color: accentBlue, size: 20),
-      filled: true,
-      fillColor: Colors.white,
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFBBDEFB), width: 1.5),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: deepBlue, width: 2),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-    );
+  final _collection = FirebaseFirestore.instance.collection('awareness_content');
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _descriptionCtrl.dispose();
+    _categoryCtrl.dispose();
+    super.dispose();
   }
 
-  /// Opens a bottom sheet for the user to choose Gallery or Camera
   Future<void> _pickImage() async {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Select Image From',
-                style: TextStyle(
-                  color: deepBlue,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _imageSourceTile(
-                      icon: Icons.photo_library_rounded,
-                      label: 'Gallery',
-                      onTap: () async {
-                        Navigator.pop(context);
-                        final XFile? file = await _picker.pickImage(
-                          source: ImageSource.gallery,
-                          imageQuality: 85,
-                        );
-                        if (file != null) {
-                          setState(() {
-                            imageController.text = file.path;
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _imageSourceTile(
-                      icon: Icons.camera_alt_rounded,
-                      label: 'Camera',
-                      onTap: () async {
-                        Navigator.pop(context);
-                        final XFile? file = await _picker.pickImage(
-                          source: ImageSource.camera,
-                          imageQuality: 85,
-                        );
-                        if (file != null) {
-                          setState(() {
-                            imageController.text = file.path;
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Select Image From',
+                style: TextStyle(color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(child: _sourceOption(Icons.photo_library_rounded, 'Gallery', () async {
+                Navigator.pop(ctx);
+                final f = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+                if (f != null) setState(() => _pickedImage = File(f.path));
+              })),
+              const SizedBox(width: 12),
+              Expanded(child: _sourceOption(Icons.camera_alt_rounded, 'Camera', () async {
+                Navigator.pop(ctx);
+                final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+                if (f != null) setState(() => _pickedImage = File(f.path));
+              })),
+            ]),
+          ]),
         ),
       ),
     );
   }
 
-  Widget _imageSourceTile({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
+  Widget _sourceOption(IconData icon, String label, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -135,22 +80,87 @@ class _AdminAwarenessManagementScreenState
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFBBDEFB), width: 1.5),
         ),
-        child: Column(
-          children: [
-            Icon(icon, color: deepBlue, size: 32),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                color: deepBlue,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
+        child: Column(children: [
+          Icon(icon, color: deepBlue, size: 32),
+          const SizedBox(height: 8),
+          Text(label, style: const TextStyle(color: deepBlue, fontWeight: FontWeight.w600, fontSize: 13)),
+        ]),
       ),
     );
+  }
+
+  Future<String?> _uploadImage() async {
+    if (_pickedImage == null) return null;
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child('awareness_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
+    final task = ref.putFile(_pickedImage!, SettableMetadata(contentType: 'image/jpeg'));
+    task.snapshotEvents.listen((s) {
+      if (mounted) setState(() => _uploadProgress = s.bytesTransferred / s.totalBytes);
+    });
+    final snap = await task;
+    setState(() => _uploadProgress = null);
+    return await snap.ref.getDownloadURL();
+  }
+
+  Future<void> _addContent() async {
+    if (_titleCtrl.text.trim().isEmpty ||
+        _descriptionCtrl.text.trim().isEmpty ||
+        _categoryCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please fill in all fields'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final imageUrl = await _uploadImage();
+      await _collection.add({
+        'title':       _titleCtrl.text.trim(),
+        'description': _descriptionCtrl.text.trim(),
+        'category':    _categoryCtrl.text.trim(),
+        'imageUrl':    imageUrl ?? '',
+        'createdAt':   FieldValue.serverTimestamp(),
+      });
+      _titleCtrl.clear();
+      _descriptionCtrl.clear();
+      _categoryCtrl.clear();
+      setState(() => _pickedImage = null);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Content added successfully'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Failed: $e'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _deleteContent(String docId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Content'),
+        content: const Text('Are you sure you want to delete this content?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _collection.doc(docId).delete();
   }
 
   @override
@@ -161,371 +171,196 @@ class _AdminAwarenessManagementScreenState
         backgroundColor: deepBlue,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
-          'Awareness Management',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-            letterSpacing: 0.3,
-          ),
-        ),
+        title: const Text('Awareness Management',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
         centerTitle: true,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(20),
-          ),
-        ),
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(20))),
       ),
-      body: Column(
-        children: [
-          // Form Card
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: deepBlue.withValues(alpha: 0.08),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Section Header
-                  Row(
-                    children: [
-                      Container(
-                        width: 4,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: deepBlue,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'Add New Content',
-                        style: TextStyle(
-                          color: deepBlue,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-
-                  TextField(
-                    controller: titleController,
-                    decoration: _inputDecoration('Title', Icons.title_rounded),
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  const SizedBox(height: 12),
-
-                  TextField(
-                    controller: categoryController,
-                    decoration: _inputDecoration('Category', Icons.category_rounded),
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── Image Picker Row ──────────────────────────────────────
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: imageController,
-                          readOnly: true,
-                          decoration: _inputDecoration(
-                            'Image Path (assets/images/...)',
-                            Icons.image_rounded,
-                          ),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      // Upload button
-                      GestureDetector(
-                        onTap: _pickImage,
-                        child: Container(
-                          height: 52,
-                          width: 52,
-                          decoration: BoxDecoration(
-                            color: deepBlue,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: deepBlue.withValues(alpha: 0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.upload_rounded,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // ── Image Preview ─────────────────────────────────────────
-                  if (imageController.text.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    ClipRRect(
+      body: Column(children: [
+        // ── Form ──────────────────────────────────────────────────────
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [BoxShadow(color: deepBlue.withValues(alpha: 0.08), blurRadius: 20, offset: const Offset(0, 4))],
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(width: 4, height: 20, decoration: BoxDecoration(color: deepBlue, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 10),
+              const Text('Add New Content', style: TextStyle(color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+            ]),
+            const SizedBox(height: 16),
+            _field(_titleCtrl, 'Title', Icons.title_rounded),
+            const SizedBox(height: 12),
+            _field(_categoryCtrl, 'Category', Icons.category_rounded),
+            const SizedBox(height: 12),
+            // Image picker
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickImage,
+                  child: Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        height: 110,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                              color: const Color(0xFFBBDEFB), width: 1.5),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: imageController.text.startsWith('assets/')
-                            ? Image.asset(
-                                imageController.text,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    _previewPlaceholder(),
-                              )
-                            : Image.file(
-                                File(imageController.text),
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    _previewPlaceholder(),
-                              ),
-                      ),
+                      border: Border.all(color: const Color(0xFFBBDEFB), width: 1.5),
                     ),
-                  ],
-
-                  const SizedBox(height: 12),
-
-                  TextField(
-                    controller: descriptionController,
-                    maxLines: 3,
-                    decoration: _inputDecoration(
-                        'Description', Icons.description_rounded),
-                    style: const TextStyle(fontSize: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(children: [
+                      const Icon(Icons.image_rounded, color: accentBlue, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(
+                        _pickedImage != null ? _pickedImage!.path.split('/').last : 'Tap to pick image',
+                        style: TextStyle(fontSize: 13, color: _pickedImage != null ? Colors.black87 : Colors.grey),
+                        overflow: TextOverflow.ellipsis,
+                      )),
+                    ]),
                   ),
-                  const SizedBox(height: 18),
-
-                  // Add Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: deepBlue,
-                        foregroundColor: Colors.white,
-                        elevation: 2,
-                        shadowColor: deepBlue.withValues(alpha: 0.4),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: addContent,
-                      icon: const Icon(Icons.add_circle_outline, size: 20),
-                      label: const Text(
-                        'Add Content',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  height: 52, width: 52,
+                  decoration: BoxDecoration(color: deepBlue, borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.upload_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+            ]),
+            // Image preview
+            if (_pickedImage != null) ...[
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(_pickedImage!, height: 110, width: double.infinity, fit: BoxFit.cover),
+              ),
+            ],
+            // Upload progress
+            if (_uploadProgress != null) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: _uploadProgress, backgroundColor: Colors.grey.shade200,
+                  valueColor: const AlwaysStoppedAnimation(deepBlue)),
+            ],
+            const SizedBox(height: 12),
+            _field(_descriptionCtrl, 'Description', Icons.description_rounded, maxLines: 3),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity, height: 50,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: deepBlue, foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: _saving ? null : _addContent,
+                icon: _saving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.add_circle_outline, size: 20),
+                label: Text(_saving ? 'Saving…' : 'Add Content',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               ),
             ),
-          ),
-
-          // List Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 10),
-            child: Row(
-              children: [
-                const Icon(Icons.list_alt_rounded, color: deepBlue, size: 20),
-                const SizedBox(width: 8),
-                const Text(
-                  'Content List',
-                  style: TextStyle(
-                    color: deepBlue,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: lightBlue,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${AwarenessData.contents.length} items',
-                    style: const TextStyle(
-                      color: deepBlue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // List
-          Expanded(
-            child: AwarenessData.contents.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.inbox_rounded,
-                            size: 60, color: accentBlue.withValues(alpha: 0.4)),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No content added yet',
-                          style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                    itemCount: AwarenessData.contents.length,
-                    itemBuilder: (context, index) {
-                      final content = AwarenessData.contents[index];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: const Border(
-                            left: BorderSide(color: deepBlue, width: 4),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: deepBlue.withValues(alpha: 0.06),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
-                          leading: Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: lightBlue,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.article_rounded,
-                                color: deepBlue, size: 22),
-                          ),
-                          title: Text(
-                            content.title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: Color(0xFF1A1A2E),
-                            ),
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: lightBlue,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                content.category,
-                                style: const TextStyle(
-                                  color: mediumBlue,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ),
-                          isThreeLine: false,
-                          trailing: IconButton(
-                            icon: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFEBEE),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.delete_outline_rounded,
-                                  color: Colors.red, size: 18),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                AwarenessData.contents.removeAt(index);
-                              });
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _previewPlaceholder() {
-    return Container(
-      color: lightBlue,
-      child: const Center(
-        child: Icon(Icons.broken_image_rounded, color: deepBlue, size: 36),
-      ),
-    );
-  }
-
-  void addContent() {
-    if (titleController.text.isEmpty ||
-        descriptionController.text.isEmpty ||
-        categoryController.text.isEmpty ||
-        imageController.text.isEmpty) {
-      return;
-    }
-
-    setState(() {
-      AwarenessData.contents.add(
-        AwarenessContent(
-          title: titleController.text,
-          description: descriptionController.text,
-          category: categoryController.text,
-          imagePath: imageController.text,
+          ]),
         ),
-      );
-    });
 
-    titleController.clear();
-    descriptionController.clear();
-    categoryController.clear();
-    imageController.clear();
+        // ── List ──────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+          child: Row(children: [
+            const Icon(Icons.list_alt_rounded, color: deepBlue, size: 20),
+            const SizedBox(width: 8),
+            const Text('Content List', style: TextStyle(color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+          ]),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _collection.orderBy('createdAt', descending: true).snapshots(),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snap.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.inbox_rounded, size: 60, color: accentBlue.withValues(alpha: 0.4)),
+                  const SizedBox(height: 12),
+                  Text('No content yet', style: TextStyle(color: Colors.grey.shade500, fontSize: 15)),
+                ]));
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                itemCount: docs.length,
+                itemBuilder: (_, i) {
+                  final data = docs[i].data() as Map<String, dynamic>;
+                  final imageUrl = data['imageUrl'] ?? '';
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: const Border(left: BorderSide(color: deepBlue, width: 4)),
+                      boxShadow: [BoxShadow(color: deepBlue.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 2))],
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: imageUrl.isNotEmpty
+                            ? Image.network(imageUrl, width: 42, height: 42, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(width: 42, height: 42, color: lightBlue,
+                                    child: const Icon(Icons.article_rounded, color: deepBlue)))
+                            : Container(width: 42, height: 42, color: lightBlue,
+                                child: const Icon(Icons.article_rounded, color: deepBlue)),
+                      ),
+                      title: Text(data['title'] ?? '',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      subtitle: Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: lightBlue, borderRadius: BorderRadius.circular(6)),
+                        child: Text(data['category'] ?? '',
+                            style: const TextStyle(color: mediumBlue, fontSize: 11, fontWeight: FontWeight.w500)),
+                      ),
+                      trailing: IconButton(
+                        icon: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(8)),
+                          child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
+                        ),
+                        onPressed: () => _deleteContent(docs[i].id),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _field(TextEditingController ctrl, String label, IconData icon, {int maxLines = 1}) {
+    return TextField(
+      controller: ctrl,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: mediumBlue, fontWeight: FontWeight.w500, fontSize: 14),
+        prefixIcon: maxLines == 1 ? Icon(icon, color: accentBlue, size: 20) : null,
+        filled: true, fillColor: Colors.white,
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFBBDEFB), width: 1.5)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: deepBlue, width: 2)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+      style: const TextStyle(fontSize: 14),
+    );
   }
 }

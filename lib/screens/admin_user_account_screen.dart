@@ -1,9 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:math';
 import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import '../services/auth_service.dart';
 
 class AdminUserAccountScreen extends StatefulWidget {
   const AdminUserAccountScreen({super.key});
@@ -13,33 +12,35 @@ class AdminUserAccountScreen extends StatefulWidget {
       _AdminUserAccountScreenState();
 }
 
-class _AdminUserAccountScreenState
-    extends State<AdminUserAccountScreen> {
+class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
   static const Color _deepBlue = Color(0xFF0D47A1);
 
-  // ── EmailJS credentials ── replace with your own ──────────────────
-  static const String _emailjsServiceId  = 'YOUR_SERVICE_ID';
-  static const String _emailjsTemplateId = 'YOUR_TEMPLATE_ID';
-  static const String _emailjsPublicKey  = 'YOUR_PUBLIC_KEY';
-  // ──────────────────────────────────────────────────────────────────
+  // ── EmailJS credentials — replace with your own ───────────────────────────
+  static const String _emailjsServiceId  = 'service_xh5thzn';
+  static const String _emailjsTemplateId = 'template_y0m05z3';
+  static const String _emailjsPublicKey  = 'Qua-QCadcOD8GPY3b';
+  // ─────────────────────────────────────────────────────────────────────────
 
-  final _formKey   = GlobalKey<FormState>();
-  final _nameCtrl  = TextEditingController();
-  final _regIdCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
+  final _authService = AuthService();
+  final _formKey     = GlobalKey<FormState>();
+  final _nameCtrl    = TextEditingController();
+  final _regIdCtrl   = TextEditingController();
+  final _emailCtrl   = TextEditingController();
 
-  String _selectedRole = 'patient';
+  String _selectedRole = UserRole.patient;
   bool   _loading      = false;
 
-  // Generated password shown to admin after creation
-  String? _generatedPassword;
+  // Shown after successful creation
+  String? _createdUserId;
+  String? _createdPassword;
+  bool?   _emailSent;
+  String  _lastEmail = '';
 
-  final List<Map<String, String>> _roles = [
-    {'value': 'patient',  'label': 'Patient'},
-    {'value': 'doctor',   'label': 'Doctor'},
-    {'value': 'medical',  'label': 'Medical Staff'},
-    {'value': 'admin',    'label': 'Admin'},
+  final List<String> _roles = [
+    UserRole.patient,
+    UserRole.doctor,
+    UserRole.medicalStaff,
+    UserRole.admin,
   ];
 
   @override
@@ -47,34 +48,23 @@ class _AdminUserAccountScreenState
     _nameCtrl.dispose();
     _regIdCtrl.dispose();
     _emailCtrl.dispose();
-    _phoneCtrl.dispose();
     super.dispose();
   }
 
-  // ── Password generator ─────────────────────────────────────────────
-  // Format: FirstLetter(capital) + RegID + random 2-digit number
-  // Example: Name=Alice, RegID=REG001 → AREG001847
-  String _generatePassword(String name, String regId) {
-    final firstLetter = name.trim()[0].toUpperCase();
-    final randomNum   = (10 + Random().nextInt(90)).toString(); // 10–99
-    return '$firstLetter$regId$randomNum';
-  }
-
-  // ── Send email via EmailJS ─────────────────────────────────────────
+  // ── Send credentials via EmailJS ─────────────────────────────────────────
   Future<bool> _sendCredentialsEmail({
     required String toName,
     required String toEmail,
+    required String userId,
     required String password,
     required String role,
   }) async {
-    const url =
-        'https://api.emailjs.com/api/v1.0/email/send';
     try {
       final response = await http.post(
-        Uri.parse(url),
+        Uri.parse('https://api.emailjs.com/api/v1.0/email/send'),
         headers: {
           'Content-Type': 'application/json',
-          'origin': 'http://localhost', // required by EmailJS
+          'origin': 'http://localhost',
         },
         body: jsonEncode({
           'service_id':  _emailjsServiceId,
@@ -83,8 +73,9 @@ class _AdminUserAccountScreenState
           'template_params': {
             'to_name':  toName,
             'to_email': toEmail,
+            'user_id':  userId,
             'password': password,
-            'role':     role[0].toUpperCase() + role.substring(1),
+            'role':     role,
           },
         }),
       );
@@ -94,120 +85,63 @@ class _AdminUserAccountScreenState
     }
   }
 
-  // ── Main create user flow ──────────────────────────────────────────
+  // ── Create user flow ─────────────────────────────────────────────────────
   Future<void> _createUser() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final email = _emailCtrl.text.trim();
+
     setState(() {
-      _loading           = true;
-      _generatedPassword = null;
+      _loading         = true;
+      _createdUserId   = null;
+      _createdPassword = null;
+      _emailSent       = null;
     });
 
-    final name   = _nameCtrl.text.trim();
-    final regId  = _regIdCtrl.text.trim();
-    final email  = _emailCtrl.text.trim();
-    final phone  = _phoneCtrl.text.trim();
-    final role   = _selectedRole;
-
-    // 1. Generate password
-    final password = _generatePassword(name, regId);
-
     try {
-      // 2. Create Firebase Auth account
-      final credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-        email:    email,
-        password: password,
+      // 1. Create user in Firestore via AuthService
+      final user = await _authService.createUser(
+        name:           _nameCtrl.text.trim(),
+        role:           _selectedRole,
+        registrationId: _regIdCtrl.text.trim(),
       );
-      final uid = credential.user!.uid;
 
-      // 3. Save to Firestore 'users' collection
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .set({
-        'uid':       uid,
-        'name':      name,
-        'regId':     regId,
-        'email':     email,
-        'phone':     phone,
-        'role':      role,
-        'isActive':  true,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // 4. If doctor, also save to 'doctors' collection
-      if (role == 'doctor') {
-        await FirebaseFirestore.instance
-            .collection('doctors')
-            .doc(uid)
-            .set({
-          'uid':       uid,
-          'name':      name,
-          'regId':     regId,
-          'email':     email,
-          'phone':     phone,
-          'isActive':  true,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      // 5. Send credentials email
-      final emailSent = await _sendCredentialsEmail(
-        toName:   name,
+      // 2. Send credentials email
+      final sent = await _sendCredentialsEmail(
+        toName:   user.name,
         toEmail:  email,
-        password: password,
-        role:     role,
+        userId:   user.userId,
+        password: user.password,
+        role:     _selectedRole,
       );
 
       if (!mounted) return;
 
-      // 6. Show generated password to admin
-      setState(() => _generatedPassword = password);
+      setState(() {
+        _createdUserId   = user.userId;
+        _createdPassword = user.password;
+        _emailSent       = sent;
+        _lastEmail       = email;
+      });
 
-      _showSuccess(emailSent
-          ? 'Account created & credentials sent to $email'
-          : 'Account created. Email failed — share password manually.');
-
-      // 7. Clear form
-      _formKey.currentState!.reset();
+      // Clear form
       _nameCtrl.clear();
       _regIdCtrl.clear();
       _emailCtrl.clear();
-      _phoneCtrl.clear();
-      setState(() => _selectedRole = 'patient');
+      _formKey.currentState!.reset();
+      setState(() => _selectedRole = UserRole.patient);
 
-    } on FirebaseAuthException catch (e) {
-      String message = 'Failed to create account.';
-      if (e.code == 'email-already-in-use') {
-        message = 'This email is already registered.';
-      } else if (e.code == 'weak-password') {
-        message = 'Generated password is too weak.';
-      } else if (e.code == 'invalid-email') {
-        message = 'Invalid email address.';
-      }
-      _showError(message);
     } catch (e) {
-      _showError('An error occurred: ${e.toString()}');
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+      ));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  void _showSuccess(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Colors.green.shade700,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 4),
-    ));
-  }
-
-  void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Colors.red.shade700,
-      behavior: SnackBarBehavior.floating,
-    ));
   }
 
   @override
@@ -216,15 +150,13 @@ class _AdminUserAccountScreenState
       backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
         title: const Text('Create User Account',
-            style: TextStyle(
-                fontWeight: FontWeight.w700, color: _deepBlue)),
+            style: TextStyle(fontWeight: FontWeight.w700, color: _deepBlue)),
         backgroundColor: Colors.white,
         foregroundColor: _deepBlue,
         elevation: 0,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child:
-              Container(height: 1, color: const Color(0xFFE8EEF8)),
+          child: Container(height: 1, color: const Color(0xFFE8EEF8)),
         ),
       ),
       body: SingleChildScrollView(
@@ -235,108 +167,148 @@ class _AdminUserAccountScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-              // ── Password preview banner ──────────────────────────
-              if (_generatedPassword != null)
-                _PasswordBanner(password: _generatedPassword!),
-
-              if (_generatedPassword != null)
+              // ── Success banner ───────────────────────────────────────
+              if (_createdUserId != null) ...[
+                _SuccessBanner(
+                  userId:    _createdUserId!,
+                  password:  _createdPassword!,
+                  emailSent: _emailSent ?? false,
+                  email:     _lastEmail,
+                ),
                 const SizedBox(height: 16),
+              ],
 
-              // ── Info card ────────────────────────────────────────
+              // ── Info card ────────────────────────────────────────────
               Container(
                 padding: const EdgeInsets.all(14),
-                margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE3F2FD),
+                  color: const Color(0xFFE8F0FE),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF90CAF9)),
+                  border: Border.all(color: const Color(0xFFBBD0F8)),
                 ),
-                child: const Row(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline,
-                        color: _deepBlue, size: 20),
-                    SizedBox(width: 10),
+                    const Icon(Icons.info_outline, color: _deepBlue, size: 18),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        'Password is auto-generated as:\n'
-                        'FirstLetter(Name) + RegID + 2-digit number\n'
-                        'e.g.  Alice + REG001  →  AREG001847',
-                        style: TextStyle(
-                            fontSize: 12.5,
-                            color: _deepBlue,
-                            height: 1.5),
+                      child: RichText(
+                        text: const TextSpan(
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: Color(0xFF1A1A2E),
+                              height: 1.5),
+                          children: [
+                            TextSpan(
+                                text: 'Password is auto-generated as:\n',
+                                style: TextStyle(fontWeight: FontWeight.w600)),
+                            TextSpan(
+                                text: 'FirstLetter(Name) + RegID + 2-digit number\n'),
+                            TextSpan(
+                                text: 'e.g.  Alice + REG001  →  AREG00147',
+                                style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 20),
 
-              // ── Form card ────────────────────────────────────────
-              _sectionCard(children: [
-
-                _label('Full Name'),
-                _textField(
-                  controller: _nameCtrl,
-                  hint: 'Enter full name',
-                  icon: Icons.person_outline,
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Name is required'
-                      : null,
+              // ── Form card ────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ],
                 ),
-                const SizedBox(height: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
 
-                _label('Registration ID'),
-                _textField(
-                  controller: _regIdCtrl,
-                  hint: 'e.g. REG001 / DOC042',
-                  icon: Icons.badge_outlined,
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Registration ID is required'
-                      : null,
+                    _label('Full Name'),
+                    _textField(
+                      controller: _nameCtrl,
+                      hint: 'e.g. Akshaya Anil',
+                      icon: Icons.person_outline,
+                      textCapitalization: TextCapitalization.words,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Name is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    _label('Registration ID'),
+                    _textField(
+                      controller: _regIdCtrl,
+                      hint: 'e.g. 1001',
+                      icon: Icons.badge_outlined,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Registration ID is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 4),
+                    // Live User ID preview
+                    ValueListenableBuilder(
+                      valueListenable: _regIdCtrl,
+                      builder: (_, __, ___) {
+                        final regId = _regIdCtrl.text.trim();
+                        if (regId.isEmpty) return const SizedBox.shrink();
+                        final prefix = RolePrefix.getPrefix(_selectedRole);
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 4),
+                          child: Text(
+                            'User ID will be: $prefix${regId.toUpperCase()}',
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: _deepBlue,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    _label('Email Address'),
+                    _textField(
+                      controller: _emailCtrl,
+                      hint: 'user@example.com',
+                      icon: Icons.email_outlined,
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
+                          return 'Email is required';
+                        }
+                        if (!RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$')
+                            .hasMatch(v.trim())) {
+                          return 'Enter a valid email address';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    _label('Role'),
+                    _roleDropdown(),
+                  ],
                 ),
-                const SizedBox(height: 16),
-
-                _label('Email Address'),
-                _textField(
-                  controller: _emailCtrl,
-                  hint: 'Enter email',
-                  icon: Icons.email_outlined,
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'Email is required';
-                    }
-                    if (!v.contains('@')) {
-                      return 'Enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                _label('Phone Number'),
-                _textField(
-                  controller: _phoneCtrl,
-                  hint: 'Enter phone number',
-                  icon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone,
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Phone is required'
-                      : null,
-                ),
-                const SizedBox(height: 16),
-
-                _label('Role'),
-                _roleDropdown(),
-              ]),
-
+              ),
               const SizedBox(height: 24),
 
-              // ── Submit button ────────────────────────────────────
+              // ── Submit button ────────────────────────────────────────
               SizedBox(
                 width: double.infinity,
                 height: 52,
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _deepBlue,
                     foregroundColor: Colors.white,
@@ -345,16 +317,18 @@ class _AdminUserAccountScreenState
                     elevation: 0,
                   ),
                   onPressed: _loading ? null : _createUser,
-                  child: _loading
+                  icon: _loading
                       ? const SizedBox(
-                          width: 22,
-                          height: 22,
+                          width: 20,
+                          height: 20,
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2.5))
-                      : const Text('Create Account',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700)),
+                      : const Icon(Icons.person_add_outlined, size: 20),
+                  label: Text(
+                    _loading ? 'Creating…' : 'Create Account & Send Email',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ],
@@ -364,7 +338,7 @@ class _AdminUserAccountScreenState
     );
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
   Widget _roleDropdown() {
     return Container(
@@ -376,37 +350,14 @@ class _AdminUserAccountScreenState
       child: DropdownButtonFormField<String>(
         value: _selectedRole,
         decoration: const InputDecoration(
-          contentPadding:
-              EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: InputBorder.none,
         ),
         items: _roles
-            .map((r) => DropdownMenuItem(
-                  value: r['value'],
-                  child: Text(r['label']!),
-                ))
+            .map((r) => DropdownMenuItem(value: r, child: Text(r)))
             .toList(),
         onChanged: (v) => setState(() => _selectedRole = v!),
       ),
-    );
-  }
-
-  Widget _sectionCard({required List<Widget> children}) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4))
-        ],
-      ),
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: children),
     );
   }
 
@@ -422,24 +373,19 @@ class _AdminUserAccountScreenState
   InputDecoration _inputDecoration(String hint, IconData icon) {
     return InputDecoration(
       hintText: hint,
-      prefixIcon:
-          Icon(icon, size: 20, color: Colors.grey.shade500),
+      prefixIcon: Icon(icon, size: 20, color: Colors.grey.shade500),
       filled: true,
       fillColor: const Color(0xFFF5F7FF),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide:
-              const BorderSide(color: Color(0xFFDDE3F0))),
+          borderSide: const BorderSide(color: Color(0xFFDDE3F0))),
       enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide:
-              const BorderSide(color: Color(0xFFDDE3F0))),
+          borderSide: const BorderSide(color: Color(0xFFDDE3F0))),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide:
-              const BorderSide(color: _deepBlue, width: 1.5)),
+          borderSide: const BorderSide(color: _deepBlue, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.red.shade400)),
@@ -451,28 +397,47 @@ class _AdminUserAccountScreenState
     required String hint,
     required IconData icon,
     TextInputType keyboardType = TextInputType.text,
+    TextCapitalization textCapitalization = TextCapitalization.none,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
       decoration: _inputDecoration(hint, icon),
       validator: validator,
     );
   }
 }
 
-// ── Password Banner Widget ─────────────────────────────────────────────────────
-class _PasswordBanner extends StatefulWidget {
+// ── Success Banner ────────────────────────────────────────────────────────────
+class _SuccessBanner extends StatefulWidget {
+  final String userId;
   final String password;
-  const _PasswordBanner({required this.password});
+  final bool   emailSent;
+  final String email;
+  const _SuccessBanner({
+    required this.userId,
+    required this.password,
+    required this.emailSent,
+    required this.email,
+  });
 
   @override
-  State<_PasswordBanner> createState() => _PasswordBannerState();
+  State<_SuccessBanner> createState() => _SuccessBannerState();
 }
 
-class _PasswordBannerState extends State<_PasswordBanner> {
-  bool _visible = false;
+class _SuccessBannerState extends State<_SuccessBanner> {
+  bool _passwordVisible = false;
+
+  void _copy(String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$label copied to clipboard'),
+      duration: const Duration(seconds: 2),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -486,85 +451,133 @@ class _PasswordBannerState extends State<_PasswordBanner> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.check_circle,
-                  color: Colors.green.shade700, size: 18),
-              const SizedBox(width: 8),
-              Text('Account Created Successfully',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.green.shade800,
-                      fontSize: 13)),
-            ],
+          Row(children: [
+            Icon(Icons.check_circle, color: Colors.green.shade700, size: 18),
+            const SizedBox(width: 8),
+            Text('Account Created Successfully',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.green.shade800,
+                    fontSize: 13)),
+          ]),
+          const SizedBox(height: 12),
+
+          _credRow(
+            label: 'User ID',
+            value: widget.userId,
+            onCopy: () => _copy(widget.userId, 'User ID'),
+            isPassword: false,
+            visible: true,
+            onToggle: null,
           ),
-          const SizedBox(height: 10),
-          const Text('Generated Password:',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.black54,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
-          Row(
-            children: [
+          const SizedBox(height: 8),
+
+          _credRow(
+            label: 'Password',
+            value: widget.password,
+            onCopy: () => _copy(widget.password, 'Password'),
+            isPassword: true,
+            visible: _passwordVisible,
+            onToggle: () =>
+                setState(() => _passwordVisible = !_passwordVisible),
+          ),
+          const SizedBox(height: 12),
+
+          // Email delivery status
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: widget.emailSent
+                  ? Colors.green.shade100
+                  : Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: widget.emailSent
+                      ? Colors.green.shade300
+                      : Colors.orange.shade300),
+            ),
+            child: Row(children: [
+              Icon(
+                widget.emailSent
+                    ? Icons.mark_email_read_outlined
+                    : Icons.warning_amber_outlined,
+                size: 16,
+                color: widget.emailSent
+                    ? Colors.green.shade700
+                    : Colors.orange.shade700,
+              ),
+              const SizedBox(width: 8),
               Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: Colors.green.shade200),
-                  ),
-                  child: Text(
-                    _visible
-                        ? widget.password
-                        : '•' * widget.password.length,
-                    style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        letterSpacing: 1.5),
-                  ),
+                child: Text(
+                  widget.emailSent
+                      ? 'Credentials sent to ${widget.email}'
+                      : 'Email delivery failed — share credentials manually',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: widget.emailSent
+                          ? Colors.green.shade800
+                          : Colors.orange.shade800,
+                      fontWeight: FontWeight.w500),
                 ),
               ),
-              const SizedBox(width: 8),
-              // Show/hide toggle
-              IconButton(
-                onPressed: () =>
-                    setState(() => _visible = !_visible),
-                icon: Icon(
-                  _visible
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  color: Colors.green.shade700,
-                ),
-                tooltip: _visible ? 'Hide' : 'Show',
-              ),
-              // Copy button
-              IconButton(
-                onPressed: () {
-                  // Copy to clipboard
-                  // Add: import 'package:flutter/services.dart';
-                  // Then: Clipboard.setData(ClipboardData(text: widget.password));
-                },
-                icon: Icon(Icons.copy_outlined,
-                    color: Colors.green.shade700),
-                tooltip: 'Copy password',
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '📧 Credentials have been sent to the user\'s email.',
-            style: TextStyle(
-                fontSize: 11.5,
-                color: Colors.green.shade700,
-                fontStyle: FontStyle.italic),
+            ]),
           ),
         ],
       ),
     );
+  }
+
+  Widget _credRow({
+    required String label,
+    required String value,
+    required VoidCallback onCopy,
+    required bool isPassword,
+    required bool visible,
+    required VoidCallback? onToggle,
+  }) {
+    return Row(children: [
+      SizedBox(
+        width: 70,
+        child: Text(label,
+            style: const TextStyle(
+                fontSize: 12,
+                color: Colors.black54,
+                fontWeight: FontWeight.w600)),
+      ),
+      Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.green.shade200),
+          ),
+          child: Text(
+            isPassword && !visible ? '•' * value.length : value,
+            style: const TextStyle(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                letterSpacing: 1),
+          ),
+        ),
+      ),
+      if (onToggle != null)
+        IconButton(
+          onPressed: onToggle,
+          icon: Icon(
+            visible
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            color: Colors.green.shade700,
+            size: 20,
+          ),
+        ),
+      IconButton(
+        onPressed: onCopy,
+        icon: Icon(Icons.copy_outlined, color: Colors.green.shade700, size: 20),
+        tooltip: 'Copy $label',
+      ),
+    ]);
   }
 }

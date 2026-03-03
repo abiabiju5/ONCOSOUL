@@ -155,13 +155,11 @@ class _AdminCommunityModerationScreenState
   }
 
   Widget _buildPostsList({required bool flaggedOnly}) {
-    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+    // Single query with no compound filter — filter flagged client-side
+    // to avoid needing a Firestore composite index
+    final Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('community_posts')
         .orderBy('createdAt', descending: true);
-
-    if (flaggedOnly) {
-      query = query.where('flagged', isEqualTo: true);
-    }
 
     return StreamBuilder<QuerySnapshot>(
       stream: query.snapshots(),
@@ -174,8 +172,13 @@ class _AdminCommunityModerationScreenState
         }
 
         final docs = snapshot.data!.docs.where((doc) {
-          if (_searchQuery.isEmpty) return true;
           final data = doc.data() as Map<String, dynamic>;
+          // Client-side flagged filter
+          if (flaggedOnly) {
+            final flagged = data['flagged'] ?? false;
+            if (flagged != true) return false;
+          }
+          if (_searchQuery.isEmpty) return true;
           final content =
               (data['content'] ?? '').toString().toLowerCase();
           final author =

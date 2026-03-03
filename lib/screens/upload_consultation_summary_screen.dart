@@ -6,7 +6,14 @@ import '../models/app_user_session.dart';
 /// an offline (in-person) consultation so doctors can review it
 /// during the next online consultation.
 class UploadConsultationSummaryScreen extends StatefulWidget {
-  const UploadConsultationSummaryScreen({super.key});
+  final String? prefilledPatientId;
+  final String? prefilledPatientName;
+
+  const UploadConsultationSummaryScreen({
+    super.key,
+    this.prefilledPatientId,
+    this.prefilledPatientName,
+  });
 
   @override
   State<UploadConsultationSummaryScreen> createState() =>
@@ -42,9 +49,15 @@ class _UploadConsultationSummaryScreenState
   @override
   void initState() {
     super.initState();
-    // Pre-fill "Uploaded By" from the logged-in staff member's name
+    // Pre-fill from session and optional passed-in values
     final currentName = AppUserSession.currentUser?.name ?? '';
     _uploadedByCtrl.text = currentName;
+    if (widget.prefilledPatientId != null) {
+      _patientIdCtrl.text = widget.prefilledPatientId!;
+    }
+    if (widget.prefilledPatientName != null) {
+      _patientNameCtrl.text = widget.prefilledPatientName!;
+    }
   }
 
   @override

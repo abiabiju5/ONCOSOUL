@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../services/doctor_service.dart';
 import '../models/app_user_session.dart';
 
@@ -23,6 +26,10 @@ class _UploadMedicalReportScreenState
   String _selectedReportType = 'Blood Test';
   DateTime _selectedDate = DateTime.now();
   bool _isSaving = false;
+
+  // ── File picker state ──────────────────────────────────────────────────────
+  PlatformFile? _pickedFile;
+  double? _uploadProgress; // null = not uploading, 0‒1 = progress
 
   static const Color _deepBlue = Color(0xFF0D47A1);
   static const Color _lightBlue = Color(0xFFE8F0FE);
@@ -50,36 +57,90 @@ class _UploadMedicalReportScreenState
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-            colorScheme: const ColorScheme.light(primary: _deepBlue)),
-        child: child!,
-      ),
+  // ── Pick file ──────────────────────────────────────────────────────────────
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+      withData: false,
+      withReadStream: false,
     );
-    if (picked != null) setState(() => _selectedDate = picked);
+
+    if (result != null && result.files.isNotEmpty) {
+      setState(() => _pickedFile = result.files.first);
+    }
   }
 
+  void _removeFile() => setState(() => _pickedFile = null);
+
+  // ── Upload file to Firebase Storage, return download URL ──────────────────
+  Future<String?> _uploadFileToStorage(String patientId) async {
+    if (_pickedFile == null) return null;
+
+    final file = File(_pickedFile!.path!);
+    final ext = _pickedFile!.extension ?? 'pdf';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath =
+        'medical_reports/$patientId/${timestamp}_${_pickedFile!.name}';
+
+    final ref = FirebaseStorage.instance.ref().child(storagePath);
+    final uploadTask = ref.putFile(
+      file,
+      SettableMetadata(contentType: _mimeType(ext)),
+    );
+
+    // Track upload progress
+    uploadTask.snapshotEvents.listen((snapshot) {
+      if (!mounted) return;
+      final progress =
+          snapshot.bytesTransferred / snapshot.totalBytes;
+      setState(() => _uploadProgress = progress);
+    });
+
+    final snapshot = await uploadTask;
+    setState(() => _uploadProgress = null);
+    return await snapshot.ref.getDownloadURL();
+  }
+
+  String _mimeType(String ext) {
+    switch (ext.toLowerCase()) {
+      case 'pdf':
+        return 'application/pdf';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSaving = true);
     try {
-      final uploadedBy = AppUserSession.currentUser?.name ?? 'Medical Staff';
+      final patientId = _patientIdCtrl.text.trim().toUpperCase();
+      final uploadedBy =
+          AppUserSession.currentUser?.name ?? 'Medical Staff';
+
+      // Upload file first (if one was picked)
+      String? fileUrl;
+      if (_pickedFile != null) {
+        fileUrl = await _uploadFileToStorage(patientId);
+      }
 
       await _service.uploadMedicalReport(
-        patientId: _patientIdCtrl.text.trim(),
+        patientId: patientId,
         patientName: _patientNameCtrl.text.trim(),
         reportType: _selectedReportType,
         labName: _labNameCtrl.text.trim(),
         uploadedBy: uploadedBy,
         reportDate: _selectedDate,
         notes: _notesCtrl.text.trim(),
+        fileUrl: fileUrl,
       );
 
       if (!mounted) return;
@@ -163,7 +224,24 @@ class _UploadMedicalReportScreenState
     setState(() {
       _selectedReportType = 'Blood Test';
       _selectedDate = DateTime.now();
+      _pickedFile = null;
+      _uploadProgress = null;
     });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+            colorScheme: const ColorScheme.light(primary: _deepBlue)),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
   }
 
   @override
@@ -175,8 +253,7 @@ class _UploadMedicalReportScreenState
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text('Upload Medical Report',
-            style:
-                TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
       ),
       body: Form(
         key: _formKey,
@@ -230,10 +307,11 @@ class _UploadMedicalReportScreenState
                 const SizedBox(height: 12),
                 _field(
                   ctrl: _patientNameCtrl,
-                  label: 'Patient Full Name',
-                  hint: 'e.g. Ananya R.',
-                  icon: Icons.person_rounded,
+                  label: 'Patient Name',
+                  hint: 'Full name as registered',
+                  icon: Icons.person_outline_rounded,
                   validator: _required,
+                  textCapitalization: TextCapitalization.words,
                 ),
               ],
             ),
@@ -248,15 +326,13 @@ class _UploadMedicalReportScreenState
                 DropdownButtonFormField<String>(
                   value: _selectedReportType,
                   decoration: _inputDeco('Report Type',
-                      icon: Icons.category_outlined),
+                      icon: Icons.science_outlined),
                   items: _reportTypes
                       .map((t) =>
                           DropdownMenuItem(value: t, child: Text(t)))
                       .toList(),
                   onChanged: (v) {
-                    if (v != null) {
-                      setState(() => _selectedReportType = v);
-                    }
+                    if (v != null) setState(() => _selectedReportType = v);
                   },
                 ),
                 const SizedBox(height: 12),
@@ -318,36 +394,111 @@ class _UploadMedicalReportScreenState
             ),
             const SizedBox(height: 16),
 
-            // ── File Upload (placeholder) ──────────────────────────────────
+            // ── File Attach ────────────────────────────────────────────────
             _sectionCard(
               title: 'Attach File (optional)',
               icon: Icons.attach_file_rounded,
               children: [
-                OutlinedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text(
-                              'File picker integration coming soon.')),
-                    );
-                  },
-                  icon: const Icon(Icons.upload_file_rounded),
-                  label: const Text('Choose Report File'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _deepBlue,
-                    side: BorderSide(
-                        color: _deepBlue.withValues(alpha: 0.5)),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
+                if (_pickedFile == null) ...[
+                  // Pick button
+                  OutlinedButton.icon(
+                    onPressed: _pickFile,
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: const Text('Choose Report File'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _deepBlue,
+                      side: BorderSide(
+                          color: _deepBlue.withValues(alpha: 0.5)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 16),
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Supported formats: PDF, JPG, PNG',
-                  style: TextStyle(fontSize: 11, color: _textSecondary),
-                ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Supported formats: PDF, JPG, PNG',
+                    style:
+                        TextStyle(fontSize: 11, color: _textSecondary),
+                  ),
+                ] else ...[
+                  // File preview card
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            _fileIcon(_pickedFile!.extension ?? ''),
+                            color: _deepBlue,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _pickedFile!.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1A1A2E)),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _formatBytes(_pickedFile!.size),
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.green.shade700),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _removeFile,
+                          icon: const Icon(Icons.close_rounded,
+                              size: 18, color: Colors.redAccent),
+                          tooltip: 'Remove file',
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Upload progress bar (shown while submitting)
+                  if (_uploadProgress != null) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: _uploadProgress,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor:
+                            const AlwaysStoppedAnimation<Color>(_deepBlue),
+                        minHeight: 6,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Uploading… ${((_uploadProgress ?? 0) * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                          fontSize: 11, color: _textSecondary),
+                    ),
+                  ],
+                ],
               ],
             ),
             const SizedBox(height: 28),
@@ -387,6 +538,25 @@ class _UploadMedicalReportScreenState
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  IconData _fileIcon(String ext) {
+    switch (ext.toLowerCase()) {
+      case 'pdf':
+        return Icons.picture_as_pdf_rounded;
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+        return Icons.image_rounded;
+      default:
+        return Icons.insert_drive_file_rounded;
+    }
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
 
   Widget _sectionCard({
     required String title,

@@ -12,7 +12,8 @@ import 'screens/admin_user_list_screen.dart';
 // ── Medical Staff screens ─────────────────────────────────────────────────────
 import 'screens/upload_medical_report_screen.dart';
 import 'screens/upload_consultation_summary_screen.dart';
-import 'screens/medical_staff_view_appointments_screen.dart';
+import 'screens/medical_staff_appointments_screen.dart';
+import 'screens/admin_doctor_management_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   /// role = 'admin'   → Hospital Administration dashboard
@@ -208,6 +209,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           const AdminCommunityModerationScreen()),
                 ),
               ),
+              const SizedBox(height: 12),
+              _MenuCard(
+                icon: Icons.medical_services_rounded,
+                title: 'Doctor Management',
+                subtitle: 'View, activate & update doctor profiles',
+                accentColor: const Color(0xFF00796B),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          const AdminDoctorManagementScreen()),
+                ),
+              ),
             ],
 
             // ── MEDICAL STAFF menu ────────────────────────────────────────
@@ -246,7 +260,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   context,
                   MaterialPageRoute(
                       builder: (_) =>
-                          const MedicalStaffViewAppointmentsScreen()),
+                          const MedicalStaffAppointmentsScreen()),
                 ),
               ),
             ],

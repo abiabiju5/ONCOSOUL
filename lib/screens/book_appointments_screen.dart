@@ -53,6 +53,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     } catch (_) { setState(() => _loadingSlots = false); }
   }
 
+  /// Returns all slots as strings (unchanged).
   List<String> _generateSlots() {
     final slots = <String>[];
     DateTime current = DateTime(selectedDate.year, selectedDate.month, selectedDate.day,
@@ -74,6 +75,27 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       current = current.add(Duration(minutes: AppointmentRules.slotDuration));
     }
     return slots;
+  }
+
+  /// Returns true if a slot string (e.g. "9:00 AM") is in the past
+  /// relative to the currently selected date + now.
+  bool _isSlotPast(String slot) {
+    final now = DateTime.now();
+    final isToday = selectedDate.year == now.year &&
+        selectedDate.month == now.month &&
+        selectedDate.day == now.day;
+    if (!isToday) return false; // future dates are never "past"
+
+    final parts = slot.split(' ');
+    final timeParts = parts[0].split(':');
+    int hour = int.parse(timeParts[0]);
+    final int minute = int.parse(timeParts[1]);
+    final bool isPm = parts[1] == 'PM';
+    if (isPm && hour != 12) hour += 12;
+    if (!isPm && hour == 12) hour = 0;
+
+    final slotDateTime = DateTime(now.year, now.month, now.day, hour, minute);
+    return slotDateTime.isBefore(now);
   }
 
   Map<String, List<String>> _groupSlots(List<String> slots) {
@@ -284,15 +306,23 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                 const SizedBox(width: 8),
                 Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-                  child: Text('${slotList.length} slots', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color))),
+                  child: Text('${slotList.where((s) => !_bookedSlots.contains(s) && !_isSlotPast(s)).length} available', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color))),
               ])),
             Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Wrap(spacing: 10, runSpacing: 10,
-                children: slotList.map((slot) => _SlotChip(
-                  slot: slot, isBooked: _bookedSlots.contains(slot),
-                  isSelected: selectedSlot == slot, accentColor: color,
-                  onTap: _bookedSlots.contains(slot) ? null : () => setState(() => selectedSlot = slot),
-                )).toList())),
+                children: slotList.map((slot) {
+                  final isBooked = _bookedSlots.contains(slot);
+                  final isPast = _isSlotPast(slot);
+                  final isDisabled = isBooked || isPast;
+                  return _SlotChip(
+                    slot: slot,
+                    isBooked: isBooked,
+                    isPast: isPast,
+                    isSelected: selectedSlot == slot,
+                    accentColor: color,
+                    onTap: isDisabled ? null : () => setState(() => selectedSlot = slot),
+                  );
+                }).toList())),
             if (!isLast) Divider(height: 1, color: Colors.grey.shade100, indent: 16, endIndent: 16),
           ]);
         }).toList(),
@@ -342,17 +372,24 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
 class _SlotChip extends StatelessWidget {
   final String slot;
   final bool isBooked;
+  final bool isPast;
   final bool isSelected;
   final Color accentColor;
   final VoidCallback? onTap;
-  const _SlotChip({required this.slot, required this.isBooked, required this.isSelected, required this.accentColor, required this.onTap});
+  const _SlotChip({required this.slot, required this.isBooked, required this.isPast, required this.isSelected, required this.accentColor, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final Color bg, text, border;
-    if (isBooked) { bg = Colors.grey.shade100; text = Colors.grey.shade400; border = Colors.grey.shade200; }
-    else if (isSelected) { bg = accentColor; text = Colors.white; border = accentColor; }
-    else { bg = Colors.white; text = const Color(0xFF0D1B3E); border = accentColor.withAlpha(64); }
+    if (isBooked) {
+      bg = Colors.grey.shade100; text = Colors.grey.shade400; border = Colors.grey.shade200;
+    } else if (isPast) {
+      bg = const Color(0xFFF5F5F5); text = Colors.grey.shade400; border = Colors.grey.shade200;
+    } else if (isSelected) {
+      bg = accentColor; text = Colors.white; border = accentColor;
+    } else {
+      bg = Colors.white; text = const Color(0xFF0D1B3E); border = accentColor.withAlpha(64);
+    }
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(duration: const Duration(milliseconds: 180),
@@ -360,9 +397,19 @@ class _SlotChip extends StatelessWidget {
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: border),
           boxShadow: isSelected ? [BoxShadow(color: accentColor.withAlpha(64), blurRadius: 8, offset: const Offset(0, 3))] : []),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (isBooked) Padding(padding: const EdgeInsets.only(right: 5), child: Icon(Icons.block_rounded, size: 11, color: Colors.grey.shade400))
-          else if (isSelected) const Padding(padding: EdgeInsets.only(right: 5), child: Icon(Icons.check_circle_rounded, size: 11, color: Colors.white)),
-          Text(slot, style: TextStyle(color: text, fontSize: 12, fontWeight: FontWeight.w600)),
+          if (isBooked)
+            Padding(padding: const EdgeInsets.only(right: 5), child: Icon(Icons.block_rounded, size: 11, color: Colors.grey.shade400))
+          else if (isPast)
+            Padding(padding: const EdgeInsets.only(right: 5), child: Icon(Icons.history_rounded, size: 11, color: Colors.grey.shade400))
+          else if (isSelected)
+            const Padding(padding: EdgeInsets.only(right: 5), child: Icon(Icons.check_circle_rounded, size: 11, color: Colors.white)),
+          Text(slot, style: TextStyle(
+            color: text,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            decoration: isPast ? TextDecoration.lineThrough : null,
+            decorationColor: Colors.grey.shade400,
+          )),
         ])),
     );
   }

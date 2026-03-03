@@ -1,190 +1,240 @@
 import 'package:flutter/material.dart';
-import '../models/awareness_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AwarenessScreen extends StatefulWidget {
   const AwarenessScreen({super.key});
 
   @override
-  State<AwarenessScreen> createState() =>
-      _AwarenessScreenState();
+  State<AwarenessScreen> createState() => _AwarenessScreenState();
 }
 
-class _AwarenessScreenState
-    extends State<AwarenessScreen> {
+class _AwarenessScreenState extends State<AwarenessScreen> {
+  static const Color deepBlue = Color(0xFF0D47A1);
+  static const Color lightBlue = Color(0xFFE3F2FD);
 
-  final Color deepBlue = const Color(0xFF0D47A1);
+  String _selectedCategory = 'All';
+  String _searchQuery = '';
 
-  String selectedCategory = 'All';
-  String searchQuery = '';
-
-  List<String> get categories {
-    final uniqueCategories = AwarenessData.contents
-        .map((e) => e.category)
-        .toSet()
-        .toList();
-    return ['All', ...uniqueCategories];
-  }
+  final _collection = FirebaseFirestore.instance
+      .collection('awareness_content')
+      .orderBy('createdAt', descending: false);
 
   @override
   Widget build(BuildContext context) {
-
-    final filteredList = AwarenessData.contents.where((content) {
-
-      final matchesCategory =
-          selectedCategory == 'All' ||
-              content.category == selectedCategory;
-
-      final matchesSearch =
-          content.title.toLowerCase().contains(
-              searchQuery.toLowerCase());
-
-      return matchesCategory && matchesSearch;
-
-    }).toList();
-
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
-        title: const Text('Awareness & Education'),
+        backgroundColor: deepBlue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('Awareness & Education',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _collection.snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = snap.data?.docs ?? [];
+          final allItems = docs.map((d) => d.data() as Map<String, dynamic>).toList();
 
-            // ================= SEARCH =================
-            TextField(
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search articles...',
-              ),
-              onChanged: (value) {
-                setState(() {
-                  searchQuery = value;
-                });
-              },
+          // Build category list
+          final categories = ['All', ...allItems.map((e) => e['category'] as String? ?? '').toSet().toList()..sort()];
+
+          // Apply filters
+          final filtered = allItems.where((e) {
+            final matchCat = _selectedCategory == 'All' || e['category'] == _selectedCategory;
+            final matchSearch = _searchQuery.isEmpty ||
+                (e['title'] ?? '').toString().toLowerCase().contains(_searchQuery);
+            return matchCat && matchSearch;
+          }).toList();
+
+          return Column(children: [
+            // Search + filter bar
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Column(children: [
+                TextField(
+                  onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
+                  decoration: InputDecoration(
+                    hintText: 'Search articles...',
+                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                    filled: true,
+                    fillColor: const Color(0xFFF5F7FF),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFDDE3F0))),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFDDE3F0))),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: deepBlue, width: 1.5)),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: categories.map((cat) {
+                      final selected = _selectedCategory == cat;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedCategory = cat),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: selected ? deepBlue : lightBlue,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(cat,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: selected ? Colors.white : deepBlue)),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ]),
             ),
 
-            const SizedBox(height: 12),
-
-            // ================= CATEGORY FILTER =================
-            DropdownButtonFormField(
-  initialValue: selectedCategory,
-  items: categories.map((category) {
-    return DropdownMenuItem(
-      value: category,
-      child: Text(category),
-    );
-  }).toList(),
-  onChanged: (value) {
-    setState(() {
-      selectedCategory = value!;
-    });
-
-              },
-              decoration: const InputDecoration(
-                labelText: 'Filter by Category',
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // ================= LIST =================
+            // List
             Expanded(
-              child: ListView.builder(
-                itemCount: filteredList.length,
-                itemBuilder: (context, index) {
-
-                  final content =
-                      filteredList[index];
-
-                  return awarenessCard(content);
-                },
-              ),
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.article_outlined, size: 56, color: Colors.grey.shade300),
+                        const SizedBox(height: 12),
+                        Text('No articles found',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                      ]),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, i) {
+                        final item = filtered[i];
+                        final imageUrl = item['imageUrl'] ?? '';
+                        return GestureDetector(
+                          onTap: () => Navigator.push(context, MaterialPageRoute(
+                            builder: (_) => AwarenessDetailScreen(data: item),
+                          )),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.05),
+                                  blurRadius: 8, offset: const Offset(0, 2))],
+                            ),
+                            child: Row(children: [
+                              // Image
+                              ClipRRect(
+                                borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
+                                child: imageUrl.isNotEmpty
+                                    ? Image.network(imageUrl, width: 80, height: 80, fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => _imagePlaceholder())
+                                    : _imagePlaceholder(),
+                              ),
+                              // Content
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                          color: lightBlue, borderRadius: BorderRadius.circular(6)),
+                                      child: Text(item['category'] ?? '',
+                                          style: const TextStyle(color: deepBlue, fontSize: 10, fontWeight: FontWeight.w600)),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(item['title'] ?? '',
+                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF1A1A2E))),
+                                    const SizedBox(height: 4),
+                                    Text(item['description'] ?? '',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                                  ]),
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(right: 12),
+                                child: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                              ),
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget awarenessCard(AwarenessContent content) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF34495E),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: ListTile(
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.asset(
-            content.imagePath,
-            width: 50,
-            height: 50,
-            fit: BoxFit.cover,
-          ),
-        ),
-        title: Text(
-          content.title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Text(
-          content.category,
-          style: const TextStyle(
-            color: Colors.white70,
-          ),
-        ),
-        trailing: const Icon(
-          Icons.arrow_forward_ios,
-          color: Colors.white70,
-        ),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  AwarenessDetailScreen(content: content),
-            ),
-          );
+          ]);
         },
       ),
     );
   }
+
+  Widget _imagePlaceholder() {
+    return Container(
+      width: 80, height: 80, color: lightBlue,
+      child: const Icon(Icons.article_rounded, color: deepBlue, size: 32),
+    );
+  }
 }
 
+// ── Detail Screen ─────────────────────────────────────────────────────────────
 class AwarenessDetailScreen extends StatelessWidget {
-  final AwarenessContent content;
+  final Map<String, dynamic> data;
+  const AwarenessDetailScreen({super.key, required this.data});
 
-  const AwarenessDetailScreen({
-    super.key,
-    required this.content,
-  });
+  static const Color deepBlue = Color(0xFF0D47A1);
 
   @override
   Widget build(BuildContext context) {
+    final imageUrl = data['imageUrl'] ?? '';
     return Scaffold(
+      backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
-        title: Text(content.title),
+        title: Text(data['title'] ?? '',
+            style: const TextStyle(color: deepBlue, fontWeight: FontWeight.w700)),
+        backgroundColor: Colors.white,
+        foregroundColor: deepBlue,
+        elevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Image.asset(content.imagePath),
-            const SizedBox(height: 16),
-            Text(
-              content.description,
-              style: const TextStyle(
-                fontSize: 15,
-                height: 1.5,
-              ),
+        padding: const EdgeInsets.all(20),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (imageUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(imageUrl, width: double.infinity,
+                  height: 200, fit: BoxFit.cover),
             ),
-          ],
-        ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD), borderRadius: BorderRadius.circular(8)),
+            child: Text(data['category'] ?? '',
+                style: const TextStyle(color: deepBlue, fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(height: 12),
+          Text(data['title'] ?? '',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E))),
+          const SizedBox(height: 12),
+          Text(data['description'] ?? '',
+              style: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFF444444))),
+        ]),
       ),
     );
   }
