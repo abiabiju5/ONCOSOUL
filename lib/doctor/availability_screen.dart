@@ -129,7 +129,7 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
     );
     if (picked != null) {
       final dateStr =
-          '\${picked.year}-\${picked.month.toString().padLeft(2, '0')}-\${picked.day.toString().padLeft(2, '0')}';
+          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
       if (!_blockedDates.contains(dateStr)) {
         setState(() => _blockedDates.add(dateStr));
         try {
@@ -140,7 +140,6 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
   }
 
   Future<void> _pickAndBlockSlot() async {
-    // Step 1: pick a date
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 1)),
@@ -155,7 +154,6 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
 
     final dateStr = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
 
-    // Step 2: pick a slot from a dialog
     final slot = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -416,7 +414,7 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
                         else
                           ..._blockedSlots.map((s) {
                             final parts = s.split('|');
-                            final label = parts.length == 2 ? '\${parts[0]}  •  \${parts[1]}' : s;
+                            final label = parts.length == 2 ? '${parts[0]}  •  ${parts[1]}' : s;
                             return ListTile(
                               dense: true,
                               contentPadding: EdgeInsets.zero,

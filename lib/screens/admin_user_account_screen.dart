@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:math';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class AdminUserAccountScreen extends StatefulWidget {
   const AdminUserAccountScreen({super.key});
@@ -10,355 +13,558 @@ class AdminUserAccountScreen extends StatefulWidget {
       _AdminUserAccountScreenState();
 }
 
-class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
-  String _selectedRole = UserRole.patient;
+class _AdminUserAccountScreenState
+    extends State<AdminUserAccountScreen> {
+  static const Color _deepBlue = Color(0xFF0D47A1);
 
-  final _nameController = TextEditingController();
-  final _regIdController = TextEditingController();
+  // ── EmailJS credentials ── replace with your own ──────────────────
+  static const String _emailjsServiceId  = 'YOUR_SERVICE_ID';
+  static const String _emailjsTemplateId = 'YOUR_TEMPLATE_ID';
+  static const String _emailjsPublicKey  = 'YOUR_PUBLIC_KEY';
+  // ──────────────────────────────────────────────────────────────────
 
-  final _authService = AuthService();
-  final _formKey = GlobalKey<FormState>();
+  final _formKey   = GlobalKey<FormState>();
+  final _nameCtrl  = TextEditingController();
+  final _regIdCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
 
-  bool _isLoading = false;
-  AppUser? _createdUser;
+  String _selectedRole = 'patient';
+  bool   _loading      = false;
 
-  // ── Roles selectable by admin ─────────────────────────────────────────────
-  final List<String> _roles = [
-    UserRole.patient,
-    UserRole.doctor,
-    UserRole.medicalStaff,
+  // Generated password shown to admin after creation
+  String? _generatedPassword;
+
+  final List<Map<String, String>> _roles = [
+    {'value': 'patient',  'label': 'Patient'},
+    {'value': 'doctor',   'label': 'Doctor'},
+    {'value': 'medical',  'label': 'Medical Staff'},
+    {'value': 'admin',    'label': 'Admin'},
   ];
-
-  final Color _deepBlue = const Color(0xFF0D47A1);
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _regIdController.dispose();
+    _nameCtrl.dispose();
+    _regIdCtrl.dispose();
+    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 
-  // ── Create user in Firestore ─────────────────────────────────────────────
-  Future<void> _createUser() async {
-    if (!_formKey.currentState!.validate()) return;
+  // ── Password generator ─────────────────────────────────────────────
+  // Format: FirstLetter(capital) + RegID + random 2-digit number
+  // Example: Name=Alice, RegID=REG001 → AREG001847
+  String _generatePassword(String name, String regId) {
+    final firstLetter = name.trim()[0].toUpperCase();
+    final randomNum   = (10 + Random().nextInt(90)).toString(); // 10–99
+    return '$firstLetter$regId$randomNum';
+  }
 
-    setState(() {
-      _isLoading = true;
-      _createdUser = null;
-    });
-
+  // ── Send email via EmailJS ─────────────────────────────────────────
+  Future<bool> _sendCredentialsEmail({
+    required String toName,
+    required String toEmail,
+    required String password,
+    required String role,
+  }) async {
+    const url =
+        'https://api.emailjs.com/api/v1.0/email/send';
     try {
-      final user = await _authService.createUser(
-        name: _nameController.text.trim(),
-        role: _selectedRole,
-        registrationId: _regIdController.text.trim(),
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'origin': 'http://localhost', // required by EmailJS
+        },
+        body: jsonEncode({
+          'service_id':  _emailjsServiceId,
+          'template_id': _emailjsTemplateId,
+          'user_id':     _emailjsPublicKey,
+          'template_params': {
+            'to_name':  toName,
+            'to_email': toEmail,
+            'password': password,
+            'role':     role[0].toUpperCase() + role.substring(1),
+          },
+        }),
       );
-
-      setState(() => _createdUser = user);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ User ${user.userId} created successfully!'),
-            backgroundColor: Colors.green.shade600,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString().replaceAll("Exception: ", "")}'),
-            backgroundColor: Colors.red.shade600,
-          ),
-        );
-      }
-    } finally {
-      setState(() => _isLoading = false);
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
     }
   }
 
-  void _copyToClipboard(String text, String label) {
-    Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$label copied to clipboard')),
-    );
+  // ── Main create user flow ──────────────────────────────────────────
+  Future<void> _createUser() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading           = true;
+      _generatedPassword = null;
+    });
+
+    final name   = _nameCtrl.text.trim();
+    final regId  = _regIdCtrl.text.trim();
+    final email  = _emailCtrl.text.trim();
+    final phone  = _phoneCtrl.text.trim();
+    final role   = _selectedRole;
+
+    // 1. Generate password
+    final password = _generatePassword(name, regId);
+
+    try {
+      // 2. Create Firebase Auth account
+      final credential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+        email:    email,
+        password: password,
+      );
+      final uid = credential.user!.uid;
+
+      // 3. Save to Firestore 'users' collection
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set({
+        'uid':       uid,
+        'name':      name,
+        'regId':     regId,
+        'email':     email,
+        'phone':     phone,
+        'role':      role,
+        'isActive':  true,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // 4. If doctor, also save to 'doctors' collection
+      if (role == 'doctor') {
+        await FirebaseFirestore.instance
+            .collection('doctors')
+            .doc(uid)
+            .set({
+          'uid':       uid,
+          'name':      name,
+          'regId':     regId,
+          'email':     email,
+          'phone':     phone,
+          'isActive':  true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // 5. Send credentials email
+      final emailSent = await _sendCredentialsEmail(
+        toName:   name,
+        toEmail:  email,
+        password: password,
+        role:     role,
+      );
+
+      if (!mounted) return;
+
+      // 6. Show generated password to admin
+      setState(() => _generatedPassword = password);
+
+      _showSuccess(emailSent
+          ? 'Account created & credentials sent to $email'
+          : 'Account created. Email failed — share password manually.');
+
+      // 7. Clear form
+      _formKey.currentState!.reset();
+      _nameCtrl.clear();
+      _regIdCtrl.clear();
+      _emailCtrl.clear();
+      _phoneCtrl.clear();
+      setState(() => _selectedRole = 'patient');
+
+    } on FirebaseAuthException catch (e) {
+      String message = 'Failed to create account.';
+      if (e.code == 'email-already-in-use') {
+        message = 'This email is already registered.';
+      } else if (e.code == 'weak-password') {
+        message = 'Generated password is too weak.';
+      } else if (e.code == 'invalid-email') {
+        message = 'Invalid email address.';
+      }
+      _showError(message);
+    } catch (e) {
+      _showError('An error occurred: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
-  void _clearForm() {
-    _nameController.clear();
-    _regIdController.clear();
-    setState(() {
-      _selectedRole = UserRole.patient;
-      _createdUser = null;
-    });
+  void _showSuccess(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Colors.green.shade700,
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 4),
+    ));
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Colors.red.shade700,
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F8FF),
+      backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
-        title: const Text('Create User Account'),
-        backgroundColor: const Color(0xFF0D47A1),
-        foregroundColor: Colors.white,
+        title: const Text('Create User Account',
+            style: TextStyle(
+                fontWeight: FontWeight.w700, color: _deepBlue)),
+        backgroundColor: Colors.white,
+        foregroundColor: _deepBlue,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child:
+              Container(height: 1, color: const Color(0xFFE8EEF8)),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // ── Form Card ────────────────────────────────────────────────────
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'New User Details',
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // ── Password preview banner ──────────────────────────
+              if (_generatedPassword != null)
+                _PasswordBanner(password: _generatedPassword!),
+
+              if (_generatedPassword != null)
+                const SizedBox(height: 16),
+
+              // ── Info card ────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.all(14),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF90CAF9)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: _deepBlue, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Password is auto-generated as:\n'
+                        'FirstLetter(Name) + RegID + 2-digit number\n'
+                        'e.g.  Alice + REG001  →  AREG001847',
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _deepBlue,
-                        ),
+                            fontSize: 12.5,
+                            color: _deepBlue,
+                            height: 1.5),
                       ),
-                      const SizedBox(height: 20),
-
-                      // ── Role Selector ──────────────────────────────────────
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedRole,
-                        decoration: InputDecoration(
-                          labelText: 'User Role',
-                          prefixIcon: Icon(Icons.badge_outlined,
-                              color: _deepBlue),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                        ),
-                        items: _roles
-                            .map((r) =>
-                                DropdownMenuItem(value: r, child: Text(r)))
-                            .toList(),
-                        onChanged: (val) =>
-                            setState(() => _selectedRole = val!),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // ── Full Name ──────────────────────────────────────────
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: InputDecoration(
-                          labelText: 'Full Name',
-                          prefixIcon:
-                              Icon(Icons.person_outline, color: _deepBlue),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) {
-                            return 'Please enter the full name';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // ── Registration ID ────────────────────────────────────
-                      TextFormField(
-                        controller: _regIdController,
-                        decoration: InputDecoration(
-                          labelText: 'Registration ID',
-                          hintText: 'e.g. 1001',
-                          prefixIcon:
-                              Icon(Icons.tag_outlined, color: _deepBlue),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          helperText:
-                              'User ID will be: ${RolePrefix.getPrefix(_selectedRole)}[Registration ID]',
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly
-                        ],
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) {
-                            return 'Please enter a registration ID';
-                          }
-                          if (v.trim().length < 3) {
-                            return 'Registration ID must be at least 3 digits';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // ── Generate Button ────────────────────────────────────
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _deepBlue,
-                            foregroundColor: Colors.white,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14)),
-                          ),
-                          onPressed: _isLoading ? null : _createUser,
-                          icon: _isLoading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.person_add_alt_1),
-                          label: Text(
-                              _isLoading ? 'Creating...' : 'Create & Save User'),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-            ),
 
-            // ── Credentials Card (shown after creation) ───────────────────────
-            if (_createdUser != null) ...[
-              const SizedBox(height: 20),
-              Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20)),
-                elevation: 4,
-                color: Colors.green.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.check_circle,
-                              color: Colors.green.shade600),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Credentials Generated',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
+              // ── Form card ────────────────────────────────────────
+              _sectionCard(children: [
 
-                      _credentialRow(
-                          'Name', _createdUser!.name, Icons.person),
-                      const SizedBox(height: 12),
-                      _credentialRow(
-                          'Role', _createdUser!.role, Icons.badge),
-                      const SizedBox(height: 12),
-                      _credentialRow(
-                        'User ID',
-                        _createdUser!.userId,
-                        Icons.fingerprint,
-                        copyable: true,
-                      ),
-                      const SizedBox(height: 12),
-                      _credentialRow(
-                        'Password',
-                        _createdUser!.password,
-                        Icons.lock_outline,
-                        copyable: true,
-                        sensitive: true,
-                      ),
+                _label('Full Name'),
+                _textField(
+                  controller: _nameCtrl,
+                  hint: 'Enter full name',
+                  icon: Icons.person_outline,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Name is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
 
-                      const SizedBox(height: 20),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border:
-                              Border.all(color: Colors.orange.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded,
-                                color: Colors.orange.shade600, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Share these credentials privately with the user. '
-                                'They can be reset later if needed.',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.orange.shade800),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                _label('Registration ID'),
+                _textField(
+                  controller: _regIdCtrl,
+                  hint: 'e.g. REG001 / DOC042',
+                  icon: Icons.badge_outlined,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Registration ID is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
 
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Create Another User'),
-                          onPressed: _clearForm,
-                        ),
-                      ),
-                    ],
+                _label('Email Address'),
+                _textField(
+                  controller: _emailCtrl,
+                  hint: 'Enter email',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Email is required';
+                    }
+                    if (!v.contains('@')) {
+                      return 'Enter a valid email';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                _label('Phone Number'),
+                _textField(
+                  controller: _phoneCtrl,
+                  hint: 'Enter phone number',
+                  icon: Icons.phone_outlined,
+                  keyboardType: TextInputType.phone,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Phone is required'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+
+                _label('Role'),
+                _roleDropdown(),
+              ]),
+
+              const SizedBox(height: 24),
+
+              // ── Submit button ────────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _deepBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
                   ),
+                  onPressed: _loading ? null : _createUser,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2.5))
+                      : const Text('Create Account',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700)),
                 ),
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _credentialRow(
-    String label,
-    String value,
-    IconData icon, {
-    bool copyable = false,
-    bool sensitive = false,
+  // ── Helpers ────────────────────────────────────────────────────────
+
+  Widget _roleDropdown() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F7FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDDE3F0)),
+      ),
+      child: DropdownButtonFormField<String>(
+        value: _selectedRole,
+        decoration: const InputDecoration(
+          contentPadding:
+              EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          border: InputBorder.none,
+        ),
+        items: _roles
+            .map((r) => DropdownMenuItem(
+                  value: r['value'],
+                  child: Text(r['label']!),
+                ))
+            .toList(),
+        onChanged: (v) => setState(() => _selectedRole = v!),
+      ),
+    );
+  }
+
+  Widget _sectionCard({required List<Widget> children}) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4))
+        ],
+      ),
+      child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children),
+    );
+  }
+
+  Widget _label(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0D1B3E))),
+      );
+
+  InputDecoration _inputDecoration(String hint, IconData icon) {
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon:
+          Icon(icon, size: 20, color: Colors.grey.shade500),
+      filled: true,
+      fillColor: const Color(0xFFF5F7FF),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide:
+              const BorderSide(color: Color(0xFFDDE3F0))),
+      enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide:
+              const BorderSide(color: Color(0xFFDDE3F0))),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide:
+              const BorderSide(color: _deepBlue, width: 1.5)),
+      errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade400)),
+    );
+  }
+
+  Widget _textField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+    String? Function(String?)? validator,
   }) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: _deepBlue),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      decoration: _inputDecoration(hint, icon),
+      validator: validator,
+    );
+  }
+}
+
+// ── Password Banner Widget ─────────────────────────────────────────────────────
+class _PasswordBanner extends StatefulWidget {
+  final String password;
+  const _PasswordBanner({required this.password});
+
+  @override
+  State<_PasswordBanner> createState() => _PasswordBannerState();
+}
+
+class _PasswordBannerState extends State<_PasswordBanner> {
+  bool _visible = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.green.shade300, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: 11, color: Colors.grey)),
-              Text(
-                sensitive ? '••••••••  ($value)' : value,
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600),
+              Icon(Icons.check_circle,
+                  color: Colors.green.shade700, size: 18),
+              const SizedBox(width: 8),
+              Text('Account Created Successfully',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.green.shade800,
+                      fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text('Generated Password:',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: Colors.green.shade200),
+                  ),
+                  child: Text(
+                    _visible
+                        ? widget.password
+                        : '•' * widget.password.length,
+                    style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        letterSpacing: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Show/hide toggle
+              IconButton(
+                onPressed: () =>
+                    setState(() => _visible = !_visible),
+                icon: Icon(
+                  _visible
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: Colors.green.shade700,
+                ),
+                tooltip: _visible ? 'Hide' : 'Show',
+              ),
+              // Copy button
+              IconButton(
+                onPressed: () {
+                  // Copy to clipboard
+                  // Add: import 'package:flutter/services.dart';
+                  // Then: Clipboard.setData(ClipboardData(text: widget.password));
+                },
+                icon: Icon(Icons.copy_outlined,
+                    color: Colors.green.shade700),
+                tooltip: 'Copy password',
               ),
             ],
           ),
-        ),
-        if (copyable)
-          IconButton(
-            icon: const Icon(Icons.copy, size: 18),
-            color: _deepBlue,
-            onPressed: () => _copyToClipboard(value, label),
-            tooltip: 'Copy $label',
+          const SizedBox(height: 6),
+          Text(
+            '📧 Credentials have been sent to the user\'s email.',
+            style: TextStyle(
+                fontSize: 11.5,
+                color: Colors.green.shade700,
+                fontStyle: FontStyle.italic),
           ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -1,349 +1,347 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AdminUserListScreen extends StatefulWidget {
   const AdminUserListScreen({super.key});
 
   @override
-  State<AdminUserListScreen> createState() =>
-      _AdminUserListScreenState();
+  State<AdminUserListScreen> createState() => _AdminUserListScreenState();
 }
 
 class _AdminUserListScreenState extends State<AdminUserListScreen> {
-  final _authService = AuthService();
-  final Color _deepBlue = const Color(0xFF0D47A1);
+  static const Color _deepBlue = Color(0xFF0D47A1);
 
-  String _filterRole = 'All';
+  String _selectedRole = 'all';
   String _searchQuery = '';
+  final _searchCtrl = TextEditingController();
 
-  // ✅ Super Admin removed — hospital admin should not see or manage it
-  final List<String> _roles = [
-    'All',
-    UserRole.patient,
-    UserRole.doctor,
-    UserRole.medicalStaff,
-    UserRole.admin,
+  final List<Map<String, String>> _roleFilters = [
+    {'value': 'all', 'label': 'All'},
+    {'value': 'patient', 'label': 'Patients'},
+    {'value': 'doctor', 'label': 'Doctors'},
+    {'value': 'medical', 'label': 'Medical Staff'},
+    {'value': 'admin', 'label': 'Admins'},
   ];
 
-  Color _roleColor(String role) {
-    switch (role) {
-      case UserRole.admin:
-        return Colors.indigo;
-      case UserRole.doctor:
-        return Colors.teal;
-      case UserRole.medicalStaff:
-        return Colors.orange;
-      case UserRole.patient:
-        return Colors.blue;
-      default:
-        return Colors.grey;
-    }
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
-  IconData _roleIcon(String role) {
-    switch (role) {
-      case UserRole.admin:
-        return Icons.manage_accounts;
-      case UserRole.doctor:
-        return Icons.medical_services_outlined;
-      case UserRole.medicalStaff:
-        return Icons.local_hospital_outlined;
-      case UserRole.patient:
-        return Icons.person_outline;
-      default:
-        return Icons.person;
+  Query<Map<String, dynamic>> get _query {
+    Query<Map<String, dynamic>> q =
+        FirebaseFirestore.instance.collection('users');
+    if (_selectedRole != 'all') {
+      q = q.where('role', isEqualTo: _selectedRole);
     }
+    return q.orderBy('createdAt', descending: true);
   }
 
-  // ── Toggle active status ──────────────────────────────────────────────────
-  Future<void> _toggleActive(AppUser user) async {
-    final newStatus = !user.isActive;
-    final action = newStatus ? 'activate' : 'deactivate';
+  Future<void> _toggleActive(String uid, bool currentStatus) async {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .update({'isActive': !currentStatus});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+          currentStatus ? 'Account deactivated.' : 'Account activated.'),
+      backgroundColor:
+          currentStatus ? Colors.orange.shade700 : Colors.green.shade700,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
+  Future<void> _confirmToggle(
+      String uid, String name, bool isActive) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
-        title: Text(
-            'Confirm ${newStatus ? "Activation" : "Deactivation"}'),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(isActive ? 'Deactivate Account' : 'Activate Account',
+            style: const TextStyle(
+                fontWeight: FontWeight.w700, color: _deepBlue)),
         content: Text(
-            'Are you sure you want to $action the account for '
-            '${user.name} (${user.userId})?'),
+            '${isActive ? 'Deactivate' : 'Activate'} account for "$name"?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: newStatus ? Colors.green : Colors.red,
-              foregroundColor: Colors.white,
+              backgroundColor: isActive
+                  ? Colors.orange.shade700
+                  : Colors.green.shade700,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(newStatus ? 'Activate' : 'Deactivate'),
+            child: Text(isActive ? 'Deactivate' : 'Activate',
+                style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+    if (confirmed == true) await _toggleActive(uid, isActive);
+  }
 
-    if (confirmed != true) return;
+  Color _roleColor(String role) {
+    switch (role) {
+      case 'doctor':
+        return const Color(0xFF1565C0);
+      case 'medical':
+        return const Color(0xFF00695C);
+      case 'admin':
+        return const Color(0xFF6A1B9A);
+      default:
+        return const Color(0xFF0277BD);
+    }
+  }
 
-    try {
-      await _authService.setUserActive(user.userId, newStatus);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                '${user.name} has been '
-                '${newStatus ? "activated" : "deactivated"}.'),
-            backgroundColor:
-                newStatus ? Colors.green : Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update status: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+  String _roleLabel(String role) {
+    switch (role) {
+      case 'medical':
+        return 'Medical Staff';
+      default:
+        return role[0].toUpperCase() + role.substring(1);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F8FF),
+      backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
-        title: const Text('Registered Users'),
-        backgroundColor: _deepBlue,
-        foregroundColor: Colors.white,
+        title: const Text('User List',
+            style:
+                TextStyle(fontWeight: FontWeight.w700, color: _deepBlue)),
+        backgroundColor: Colors.white,
+        foregroundColor: _deepBlue,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: const Color(0xFFE8EEF8)),
+        ),
       ),
       body: Column(
         children: [
-          // ── Search + Filter Bar ─────────────────────────────────────────
+          // Search bar
           Container(
-            color: _deepBlue.withValues(alpha: 0.04),
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 12),
-            child: Column(
-              children: [
-                TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search by name or user ID…',
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: Colors.white,
-                    contentPadding:
-                        const EdgeInsets.symmetric(vertical: 0),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: (val) =>
-                      setState(() => _searchQuery = val.toLowerCase()),
-                ),
-                const SizedBox(height: 10),
-                // ✅ Role filter chips — Super Admin excluded
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: _roles
-                        .map((r) => Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: FilterChip(
-                                label: Text(r),
-                                selected: _filterRole == r,
-                                selectedColor:
-                                    _deepBlue.withValues(alpha: 0.15),
-                                onSelected: (_) => setState(
-                                    () => _filterRole = r),
-                              ),
-                            ))
-                        .toList(),
-                  ),
-                ),
-              ],
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search by name or email...',
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.grey),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFFF5F7FF),
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: Color(0xFFDDE3F0))),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: Color(0xFFDDE3F0))),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: _deepBlue, width: 1.5)),
+              ),
+              onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
             ),
           ),
-
-          // ── User List ───────────────────────────────────────────────────
+          // Role filter chips
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _roleFilters
+                    .map((r) => Padding(
+                          padding:
+                              const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(r['label']!),
+                            selected: _selectedRole == r['value'],
+                            onSelected: (_) => setState(
+                                () => _selectedRole = r['value']!),
+                            selectedColor: _deepBlue,
+                            labelStyle: TextStyle(
+                              color: _selectedRole == r['value']
+                                  ? Colors.white
+                                  : Colors.black87,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+          // User list
           Expanded(
-            child: StreamBuilder<List<AppUser>>(
-              stream: _authService.getAllUsersStream(),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _query.snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState ==
-                    ConnectionState.waiting) {
+                if (snapshot.hasError) {
+                  return Center(
+                      child: Text('Error: ${snapshot.error}'));
+                }
+                if (!snapshot.hasData) {
                   return const Center(
                       child: CircularProgressIndicator());
                 }
 
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('Error: ${snapshot.error}',
-                        style:
-                            const TextStyle(color: Colors.red)),
-                  );
-                }
+                final docs = snapshot.data!.docs.where((doc) {
+                  if (_searchQuery.isEmpty) return true;
+                  final data = doc.data() as Map<String, dynamic>;
+                  final name =
+                      (data['name'] ?? '').toString().toLowerCase();
+                  final email =
+                      (data['email'] ?? '').toString().toLowerCase();
+                  return name.contains(_searchQuery) ||
+                      email.contains(_searchQuery);
+                }).toList();
 
-                var users = snapshot.data ?? [];
-
-                // ✅ Always hide Super Admin from this list
-                users = users
-                    .where(
-                        (u) => u.role != UserRole.superAdmin)
-                    .toList();
-
-                // Apply role filter
-                if (_filterRole != 'All') {
-                  users = users
-                      .where((u) => u.role == _filterRole)
-                      .toList();
-                }
-
-                // Apply search filter
-                if (_searchQuery.isNotEmpty) {
-                  users = users
-                      .where((u) =>
-                          u.name
-                              .toLowerCase()
-                              .contains(_searchQuery) ||
-                          u.userId
-                              .toLowerCase()
-                              .contains(_searchQuery))
-                      .toList();
-                }
-
-                if (users.isEmpty) {
+                if (docs.isEmpty) {
                   return Center(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.people_outline,
-                            size: 64,
+                            size: 60,
                             color: Colors.grey.shade300),
                         const SizedBox(height: 12),
                         Text('No users found',
                             style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 16)),
+                                color: Colors.grey.shade500,
+                                fontWeight: FontWeight.w600)),
                       ],
                     ),
                   );
                 }
 
-                return ListView.builder(
+                return ListView.separated(
                   padding: const EdgeInsets.all(16),
-                  itemCount: users.length,
-                  itemBuilder: (ctx, i) {
-                    final user = users[i];
-                    final color = _roleColor(user.role);
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final data =
+                        docs[index].data() as Map<String, dynamic>;
+                    final uid = docs[index].id;
+                    final name = data['name'] ?? 'Unknown';
+                    final email = data['email'] ?? '';
+                    final phone = data['phone'] ?? '';
+                    final role = data['role'] ?? 'patient';
+                    final isActive = data['isActive'] ?? true;
+                    final roleColor = _roleColor(role);
 
-                    return Card(
-                      margin:
-                          const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(16)),
-                      elevation: 2,
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                              color:
+                                  Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2))
+                        ],
+                      ),
                       child: ListTile(
-                        contentPadding:
-                            const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
                         leading: CircleAvatar(
                           backgroundColor:
-                              color.withValues(alpha: 0.15),
-                          radius: 24,
-                          child: Icon(_roleIcon(user.role),
-                              color: color, size: 22),
+                              roleColor.withValues(alpha: 0.15),
+                          child: Text(
+                            name.isNotEmpty
+                                ? name[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                                color: roleColor,
+                                fontWeight: FontWeight.w700),
+                          ),
                         ),
                         title: Row(
                           children: [
                             Expanded(
-                              child: Text(
-                                user.name,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15),
-                              ),
+                              child: Text(name,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14)),
                             ),
                             Container(
-                              padding:
-                                  const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: user.isActive
-                                    ? Colors.green.shade50
-                                    : Colors.red.shade50,
-                                borderRadius:
-                                    BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: user.isActive
-                                      ? Colors.green.shade200
-                                      : Colors.red.shade200,
-                                ),
+                                color:
+                                    roleColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Text(
-                                user.isActive
-                                    ? 'Active'
-                                    : 'Inactive',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: user.isActive
-                                      ? Colors.green.shade700
-                                      : Colors.red.shade700,
-                                ),
-                              ),
+                              child: Text(_roleLabel(role),
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: roleColor)),
                             ),
                           ],
                         ),
-                        subtitle: Padding(
-                          padding:
-                              const EdgeInsets.only(top: 4),
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                            children: [
-                              Text('ID: ${user.userId}',
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 2),
+                            Text(email,
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.black54)),
+                            if (phone.isNotEmpty)
+                              Text(phone,
                                   style: const TextStyle(
-                                      fontSize: 13)),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding:
-                                    const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: color.withValues(
-                                      alpha: 0.1),
-                                  borderRadius:
-                                      BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  user.role,
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: color),
-                                ),
-                              ),
-                            ],
-                          ),
+                                      fontSize: 12,
+                                      color: Colors.black38)),
+                          ],
                         ),
-                        isThreeLine: true,
-                        trailing: Switch(
-                          value: user.isActive,
-                          activeThumbColor: Colors.green,
-                          inactiveThumbColor:
-                              Colors.red.shade300,
-                          onChanged: (_) =>
-                              _toggleActive(user),
+                        trailing: GestureDetector(
+                          onTap: () =>
+                              _confirmToggle(uid, name, isActive),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isActive
+                                  ? Colors.green.shade50
+                                  : Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: isActive
+                                      ? Colors.green.shade300
+                                      : Colors.red.shade300),
+                            ),
+                            child: Text(
+                              isActive ? 'Active' : 'Inactive',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isActive
+                                      ? Colors.green.shade700
+                                      : Colors.red.shade700),
+                            ),
+                          ),
                         ),
                       ),
                     );

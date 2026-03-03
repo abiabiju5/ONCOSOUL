@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AdminResetPasswordScreen extends StatefulWidget {
   const AdminResetPasswordScreen({super.key});
@@ -12,307 +12,334 @@ class AdminResetPasswordScreen extends StatefulWidget {
 
 class _AdminResetPasswordScreenState
     extends State<AdminResetPasswordScreen> {
-  final _userIdController = TextEditingController();
-  final _authService = AuthService();
+  static const Color _deepBlue = Color(0xFF0D47A1);
 
-  bool _isLoading = false;
-  String? _newPassword;
-  String? _errorMessage;
-  bool _resetSuccess = false;
-
-  final Color _deepBlue = const Color(0xFF0D47A1);
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  String? _selectedUid;
+  String? _selectedName;
+  String? _selectedEmail;
+  bool _sending = false;
 
   @override
   void dispose() {
-    _userIdController.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _resetPassword() async {
-    final userId = _userIdController.text.trim();
-
-    if (userId.isEmpty) {
-      setState(() => _errorMessage = 'Please enter a User ID.');
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _newPassword = null;
-      _resetSuccess = false;
-    });
-
+  Future<void> _sendResetEmail() async {
+    if (_selectedEmail == null) return;
+    setState(() => _sending = true);
     try {
-      final newPassword = await _authService.resetPassword(userId);
-      setState(() {
-        _newPassword = newPassword;
-        _resetSuccess = true;
+      await FirebaseAuth.instance
+          .sendPasswordResetEmail(email: _selectedEmail!);
+
+      // Log the reset request in Firestore
+      await FirebaseFirestore.instance.collection('password_resets').add({
+        'uid': _selectedUid,
+        'email': _selectedEmail,
+        'name': _selectedName,
+        'requestedAt': FieldValue.serverTimestamp(),
+        'requestedBy': FirebaseAuth.instance.currentUser?.uid,
       });
+
+      if (!mounted) return;
+      _showSuccess(
+          'Password reset email sent to $_selectedEmail');
+      setState(() {
+        _selectedUid = null;
+        _selectedName = null;
+        _selectedEmail = null;
+        _searchQuery = '';
+        _searchCtrl.clear();
+      });
+    } on FirebaseAuthException catch (e) {
+      _showError('Failed: ${e.message}');
     } catch (e) {
-      setState(() {
-        _errorMessage =
-            e.toString().replaceAll('Exception: ', '');
-      });
+      _showError('An error occurred.');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _sending = false);
     }
   }
 
-  void _copyToClipboard(String text) {
-    Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password copied to clipboard')),
-    );
+  void _showSuccess(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Colors.green.shade700,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Colors.red.shade700,
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F8FF),
+      backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
-        title: const Text('Reset User Password'),
-        backgroundColor: _deepBlue,
-        foregroundColor: Colors.white,
+        title: const Text('Reset Password',
+            style:
+                TextStyle(fontWeight: FontWeight.w700, color: _deepBlue)),
+        backgroundColor: Colors.white,
+        foregroundColor: _deepBlue,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: const Color(0xFFE8EEF8)),
+        ),
       ),
-      body: SingleChildScrollView(
+      body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Instructions ─────────────────────────────────────────────────
+            // Info banner
             Container(
-              padding: const EdgeInsets.all(16),
-              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.blue.shade100),
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF90CAF9)),
               ),
-              child: Row(
+              child: const Row(
                 children: [
                   Icon(Icons.info_outline,
                       color: _deepBlue, size: 20),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Enter the User ID to generate a new password. '
-                      'The old password will be invalidated immediately.',
+                      'A password reset link will be sent to the user\'s registered email address.',
                       style: TextStyle(
-                          fontSize: 13, color: _deepBlue),
+                          fontSize: 12.5,
+                          color: _deepBlue,
+                          height: 1.4),
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+            // Search
+            TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search user by name or email...',
+                prefixIcon:
+                    const Icon(Icons.search, color: Colors.grey),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon:
+                            const Icon(Icons.clear, color: Colors.grey),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 12),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: Color(0xFFDDE3F0))),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: Color(0xFFDDE3F0))),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: _deepBlue, width: 1.5)),
+              ),
+              onChanged: (v) =>
+                  setState(() => _searchQuery = v.toLowerCase()),
+            ),
+            const SizedBox(height: 12),
+            // User search results
+            if (_searchQuery.isNotEmpty)
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .orderBy('name')
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(
+                          child: CircularProgressIndicator());
+                    }
+                    final docs = snapshot.data!.docs.where((doc) {
+                      final data =
+                          doc.data() as Map<String, dynamic>;
+                      final name =
+                          (data['name'] ?? '').toString().toLowerCase();
+                      final email = (data['email'] ?? '')
+                          .toString()
+                          .toLowerCase();
+                      return name.contains(_searchQuery) ||
+                          email.contains(_searchQuery);
+                    }).toList();
 
-            // ── Input Card ───────────────────────────────────────────────────
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'User Identification',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: _deepBlue,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                    if (docs.isEmpty) {
+                      return const Center(
+                          child: Text('No users found.'));
+                    }
 
-                    TextFormField(
-                      controller: _userIdController,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: InputDecoration(
-                        labelText: 'User ID',
-                        hintText: 'e.g. P1001, D2001, M3001',
-                        prefixIcon:
-                            Icon(Icons.fingerprint, color: _deepBlue),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onChanged: (_) => setState(() {
-                        _errorMessage = null;
-                        _resetSuccess = false;
-                        _newPassword = null;
-                      }),
-                    ),
+                    return ListView.separated(
+                      itemCount: docs.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final data =
+                            docs[i].data() as Map<String, dynamic>;
+                        final uid = docs[i].id;
+                        final name = data['name'] ?? 'Unknown';
+                        final email = data['email'] ?? '';
+                        final role = data['role'] ?? 'patient';
+                        final isSelected = _selectedUid == uid;
 
-                    // ── Error message ─────────────────────────────────────
-                    if (_errorMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.red.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.error_outline,
-                                color: Colors.red.shade400, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: TextStyle(
-                                    color: Colors.red.shade700,
-                                    fontSize: 13),
-                              ),
+                        return GestureDetector(
+                          onTap: () => setState(() {
+                            _selectedUid = uid;
+                            _selectedName = name;
+                            _selectedEmail = email;
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? const Color(0xFFE3F2FD)
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: isSelected
+                                      ? _deepBlue
+                                      : const Color(0xFFE8EEF8),
+                                  width: isSelected ? 1.5 : 1),
+                              boxShadow: [
+                                BoxShadow(
+                                    color: Colors.black
+                                        .withValues(alpha: 0.04),
+                                    blurRadius: 6)
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 20),
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _deepBlue,
-                          foregroundColor: Colors.white,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
-                        ),
-                        onPressed: _isLoading ? null : _resetPassword,
-                        icon: _isLoading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white),
-                              )
-                            : const Icon(Icons.lock_reset),
-                        label: Text(_isLoading
-                            ? 'Resetting...'
-                            : 'Generate New Password'),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: _deepBlue
+                                      .withValues(alpha: 0.1),
+                                  child: Text(
+                                    name.isNotEmpty
+                                        ? name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                        color: _deepBlue,
+                                        fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(name,
+                                          style: const TextStyle(
+                                              fontWeight:
+                                                  FontWeight.w700,
+                                              fontSize: 14)),
+                                      Text(email,
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black54)),
+                                      Text(
+                                          role[0].toUpperCase() +
+                                              role.substring(1),
+                                          style: const TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.black38)),
+                                    ],
+                                  ),
+                                ),
+                                if (isSelected)
+                                  const Icon(Icons.check_circle,
+                                      color: _deepBlue),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            // Send button
+            if (_selectedUid != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border:
+                      Border.all(color: const Color(0xFFE8EEF8)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person,
+                        color: _deepBlue, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_selectedName ?? '',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700)),
+                          Text(_selectedEmail ?? '',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54)),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-
-            // ── New Password Card (shown on success) ──────────────────────────
-            if (_resetSuccess && _newPassword != null) ...[
-              const SizedBox(height: 20),
-              Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20)),
-                elevation: 4,
-                color: Colors.green.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.check_circle,
-                              color: Colors.green.shade600),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Password Reset Successful',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-
-                      Text(
-                        'User ID',
-                        style: TextStyle(
-                            fontSize: 11, color: Colors.grey.shade600),
-                      ),
-                      Text(
-                        _userIdController.text.trim().toUpperCase(),
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Text(
-                        'New Password',
-                        style: TextStyle(
-                            fontSize: 11, color: Colors.grey.shade600),
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                    color: Colors.green.shade200),
-                              ),
-                              child: Text(
-                                _newPassword!,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.5,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.copy),
-                            color: _deepBlue,
-                            onPressed: () =>
-                                _copyToClipboard(_newPassword!),
-                            tooltip: 'Copy password',
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border:
-                              Border.all(color: Colors.orange.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded,
-                                color: Colors.orange.shade600,
-                                size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Share this new password privately with the user. '
-                                'Their old password no longer works.',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.orange.shade800),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6A1B9A),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
                   ),
+                  onPressed: _sending ? null : _sendResetEmail,
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.send_rounded),
+                  label: Text(
+                      _sending
+                          ? 'Sending...'
+                          : 'Send Password Reset Email',
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
                 ),
               ),
             ],
