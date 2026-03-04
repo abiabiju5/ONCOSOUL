@@ -158,7 +158,7 @@ class _AdminCommunityModerationScreenState
     // Single query with no compound filter — filter flagged client-side
     // to avoid needing a Firestore composite index
     final Query<Map<String, dynamic>> query = FirebaseFirestore.instance
-        .collection('community_posts')
+        .collection('forum_posts')
         .orderBy('createdAt', descending: true);
 
     return StreamBuilder<QuerySnapshot>(
@@ -180,7 +180,7 @@ class _AdminCommunityModerationScreenState
           }
           if (_searchQuery.isEmpty) return true;
           final content =
-              (data['content'] ?? '').toString().toLowerCase();
+              (data['message'] ?? '').toString().toLowerCase();
           final author =
               (data['authorName'] ?? '').toString().toLowerCase();
           return content.contains(_searchQuery) ||
@@ -215,15 +215,16 @@ class _AdminCommunityModerationScreenState
             final data = docs[i].data() as Map<String, dynamic>;
             final docId = docs[i].id;
             final author = data['authorName'] ?? 'Anonymous';
-            final content = data['content'] ?? '';
+            final content = data['message'] ?? '';
             final isFlagged = data['flagged'] ?? false;
             final timestamp = data['createdAt'] as Timestamp?;
             final formattedDate = timestamp != null
                 ? DateFormat('dd MMM yyyy, hh:mm a')
                     .format(timestamp.toDate())
                 : 'Unknown time';
-            final likesCount = data['likesCount'] ?? 0;
-            final commentsCount = data['commentsCount'] ?? 0;
+            final likesCount = data['likes'] ?? 0;
+            final likedBy = List<String>.from(data['likedBy'] ?? []);
+            final commentsCount = likedBy.length;
 
             return Container(
               decoration: BoxDecoration(
@@ -316,10 +317,10 @@ class _AdminCommunityModerationScreenState
                                 fontSize: 12,
                                 color: Colors.grey.shade500)),
                         const SizedBox(width: 12),
-                        Icon(Icons.comment_outlined,
+                        Icon(Icons.people_outline,
                             size: 14, color: Colors.grey.shade400),
                         const SizedBox(width: 4),
-                        Text('$commentsCount',
+                        Text('${likedBy.length} liked',
                             style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade500)),
@@ -327,7 +328,7 @@ class _AdminCommunityModerationScreenState
                         // Flag button
                         GestureDetector(
                           onTap: () => _toggleFlag(
-                              docId, 'community_posts', isFlagged),
+                              docId, 'forum_posts', isFlagged),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),
@@ -356,7 +357,7 @@ class _AdminCommunityModerationScreenState
                         // Delete button
                         GestureDetector(
                           onTap: () =>
-                              _deletePost(docId, 'community_posts'),
+                              _deletePost(docId, 'forum_posts'),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),

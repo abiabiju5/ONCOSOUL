@@ -109,6 +109,7 @@ class ForumPost {
   final DateTime createdAt;
   int likes;
   final List<String> likedBy;
+  final bool flagged;
 
   ForumPost({
     required this.id,
@@ -118,6 +119,7 @@ class ForumPost {
     required this.createdAt,
     this.likes = 0,
     this.likedBy = const [],
+    this.flagged = false,
   });
 
   factory ForumPost.fromMap(String id, Map<String, dynamic> map) => ForumPost(
@@ -129,6 +131,7 @@ class ForumPost {
             (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
         likes: map['likes'] ?? 0,
         likedBy: List<String>.from(map['likedBy'] ?? []),
+        flagged: map['flagged'] ?? false,
       );
 }
 

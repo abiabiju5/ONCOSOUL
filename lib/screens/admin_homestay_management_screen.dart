@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
@@ -21,11 +24,15 @@ class _AdminHomestayManagementScreenState
   final _lngCtrl      = TextEditingController();
   final _rateCtrl     = TextEditingController();
 
-  Uint8List? _pickedImageBytes;
-  String?    _pickedImageName;
+  // Store XFile so we can use .path on mobile (avoids loading all bytes into RAM)
+  XFile?     _pickedFile;
+  Uint8List? _previewBytes;   // only used for the on-screen preview
   bool    _saving = false;
   double? _uploadProgress;
   String? _errorMessage;
+
+  StreamSubscription<TaskSnapshot>? _uploadSubscription;
+  UploadTask? _currentUploadTask;
 
   final ImagePicker _picker = ImagePicker();
 
@@ -39,13 +46,42 @@ class _AdminHomestayManagementScreenState
 
   @override
   void dispose() {
-    for (final c in [_nameCtrl, _locationCtrl, _contactCtrl, _latCtrl, _lngCtrl, _rateCtrl]) {
+    _uploadSubscription?.cancel();
+    _currentUploadTask?.cancel();
+    for (final c in [_nameCtrl, _locationCtrl, _contactCtrl,
+                     _latCtrl, _lngCtrl, _rateCtrl]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
+  // ── Image picker ─────────────────────────────────────────────────────────
+
+  Future<void> _pickImage(ImageSource source) async {
+    Navigator.pop(context);
+    try {
+      final f = await _picker.pickImage(
+        source: source,
+        imageQuality: 70,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+      if (f == null || !mounted) return;
+
+      // Read bytes only for preview display — not for upload
+      final bytes = await f.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _pickedFile   = f;
+        _previewBytes = bytes;
+        _errorMessage = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = 'Could not pick image: $e');
+    }
+  }
+
+  Future<void> _showPickerSheet() async {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -55,32 +91,15 @@ class _AdminHomestayManagementScreenState
           padding: const EdgeInsets.all(20),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Select Image From',
-                style: TextStyle(color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+                style: TextStyle(color: deepBlue, fontSize: 16,
+                    fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
             Row(children: [
-              Expanded(child: _srcTile(Icons.photo_library_rounded, 'Gallery', () async {
-                Navigator.pop(ctx);
-                final f = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-                if (f != null) {
-                  final bytes = await f.readAsBytes();
-                  setState(() {
-                    _pickedImageBytes = bytes;
-                    _pickedImageName  = f.name;
-                  });
-                }
-              })),
+              Expanded(child: _srcTile(Icons.photo_library_rounded, 'Gallery',
+                  () => _pickImage(ImageSource.gallery))),
               const SizedBox(width: 12),
-              Expanded(child: _srcTile(Icons.camera_alt_rounded, 'Camera', () async {
-                Navigator.pop(ctx);
-                final f = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-                if (f != null) {
-                  final bytes = await f.readAsBytes();
-                  setState(() {
-                    _pickedImageBytes = bytes;
-                    _pickedImageName  = f.name;
-                  });
-                }
-              })),
+              Expanded(child: _srcTile(Icons.camera_alt_rounded, 'Camera',
+                  () => _pickImage(ImageSource.camera))),
             ]),
           ]),
         ),
@@ -88,9 +107,9 @@ class _AdminHomestayManagementScreenState
     );
   }
 
-  Widget _srcTile(IconData icon, String label, Future<void> Function() onTap) {
+  Widget _srcTile(IconData icon, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: () { onTap(); },
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
@@ -100,49 +119,98 @@ class _AdminHomestayManagementScreenState
         child: Column(children: [
           Icon(icon, color: deepBlue, size: 32),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(color: deepBlue, fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(label, style: const TextStyle(
+              color: deepBlue, fontWeight: FontWeight.w600, fontSize: 13)),
         ]),
       ),
     );
   }
 
+  // ── Upload ───────────────────────────────────────────────────────────────
+  // KEY FIX: use putFile() on mobile instead of putData()
+  // putData() loads the entire image into memory and is much slower.
+  // putFile() streams directly from disk — faster and no RAM spike.
+
   Future<String?> _uploadImage() async {
-    if (_pickedImageBytes == null) return null;
+    if (_pickedFile == null) return null;
+
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child('homestay_images/$fileName');
+
+    UploadTask task;
+
+    if (kIsWeb) {
+      // Web has no file path — must use bytes
+      final bytes = await _pickedFile!.readAsBytes();
+      task = ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+    } else {
+      // Mobile: stream from file path — much faster, avoids RAM load
+      task = ref.putFile(
+        File(_pickedFile!.path),
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
+    }
+
+    _currentUploadTask = task;
+
+    await _uploadSubscription?.cancel();
+    _uploadSubscription = task.snapshotEvents.listen((snap) {
+      if (!mounted) return;
+      final progress = snap.totalBytes > 0
+          ? snap.bytesTransferred / snap.totalBytes
+          : 0.0;
+      setState(() => _uploadProgress = progress);
+    }, onError: (_) {
+      if (mounted) setState(() => _uploadProgress = null);
+    });
+
     try {
-      final ref = FirebaseStorage.instance
-          .ref()
-          .child('homestay_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      final task = ref.putData(_pickedImageBytes!, SettableMetadata(contentType: 'image/jpeg'));
-      task.snapshotEvents.listen((s) {
-        if (mounted) setState(() => _uploadProgress = s.bytesTransferred / s.totalBytes);
-      });
-      final snap = await task;
-      setState(() => _uploadProgress = null);
+      final snap = await task.timeout(
+        const Duration(seconds: 60),
+        onTimeout: () => throw TimeoutException('Upload timed out after 60s'),
+      );
+      await _uploadSubscription?.cancel();
+      _uploadSubscription = null;
+      _currentUploadTask = null;
+      if (mounted) setState(() => _uploadProgress = null);
       return await snap.ref.getDownloadURL();
     } catch (e) {
-      setState(() => _uploadProgress = null);
+      await _uploadSubscription?.cancel();
+      _uploadSubscription = null;
+      _currentUploadTask = null;
+      if (mounted) setState(() => _uploadProgress = null);
       rethrow;
     }
   }
 
+  // ── Save ─────────────────────────────────────────────────────────────────
+
   Future<void> _addHomestay() async {
+    FocusScope.of(context).unfocus();
     setState(() => _errorMessage = null);
 
-    if (_nameCtrl.text.trim().isEmpty || _locationCtrl.text.trim().isEmpty ||
-        _contactCtrl.text.trim().isEmpty || _rateCtrl.text.trim().isEmpty) {
-      setState(() => _errorMessage = 'Please fill in all required fields (Name, Location, Contact, Rate).');
+    if (_nameCtrl.text.trim().isEmpty ||
+        _locationCtrl.text.trim().isEmpty ||
+        _contactCtrl.text.trim().isEmpty ||
+        _rateCtrl.text.trim().isEmpty) {
+      setState(() => _errorMessage =
+          'Please fill in Name, Location, Contact and Rate.');
       return;
     }
 
     setState(() => _saving = true);
     try {
-      // Try image upload separately — if it fails, still save to Firestore without image
       String imageUrl = '';
-      if (_pickedImageBytes != null) {
+      if (_pickedFile != null) {
         try {
           imageUrl = await _uploadImage() ?? '';
-        } catch (uploadErr) {
-          setState(() => _errorMessage = 'Image upload failed: $uploadErr\nSaving homestay without image…');
+        } catch (e) {
+          if (mounted) {
+            setState(() => _errorMessage =
+                'Image upload failed: $e\nSaving without image…');
+          }
         }
       }
 
@@ -157,25 +225,25 @@ class _AdminHomestayManagementScreenState
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      for (final c in [_nameCtrl, _locationCtrl, _contactCtrl, _latCtrl, _lngCtrl, _rateCtrl]) {
+      for (final c in [_nameCtrl, _locationCtrl, _contactCtrl,
+                       _latCtrl, _lngCtrl, _rateCtrl]) {
         c.clear();
       }
-      setState(() {
-        _pickedImageBytes = null;
-        _pickedImageName  = null;
-        _errorMessage     = null;
-      });
-
       if (mounted) {
+        setState(() {
+          _pickedFile   = null;
+          _previewBytes = null;
+          _errorMessage = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Homestay added successfully ✓'),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 4),
+          duration: Duration(seconds: 3),
         ));
       }
     } catch (e) {
-      setState(() => _errorMessage = 'Save failed: $e');
+      if (mounted) setState(() => _errorMessage = 'Save failed: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -186,9 +254,11 @@ class _AdminHomestayManagementScreenState
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete Homestay'),
-        content: const Text('Are you sure you want to remove this homestay?'),
+        content: const Text('Remove this homestay?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
@@ -199,6 +269,8 @@ class _AdminHomestayManagementScreenState
     );
     if (ok == true) await _col.doc(docId).delete();
   }
+
+  // ── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -217,47 +289,64 @@ class _AdminHomestayManagementScreenState
       body: Column(children: [
         Expanded(
           child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
             child: Column(children: [
+
+              // ── Form card ────────────────────────────────────────────
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white, borderRadius: BorderRadius.circular(20),
-                  boxShadow: [BoxShadow(color: deepBlue.withValues(alpha: 0.08), blurRadius: 20, offset: const Offset(0, 4))],
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(
+                      color: deepBlue.withValues(alpha: 0.08),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4))],
                 ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                   Row(children: [
-                    Container(width: 4, height: 20, decoration: BoxDecoration(color: deepBlue, borderRadius: BorderRadius.circular(2))),
+                    Container(width: 4, height: 20,
+                        decoration: BoxDecoration(color: deepBlue,
+                            borderRadius: BorderRadius.circular(2))),
                     const SizedBox(width: 10),
-                    const Text('Add New Homestay', style: TextStyle(color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+                    const Text('Add New Homestay',
+                        style: TextStyle(color: deepBlue, fontSize: 16,
+                            fontWeight: FontWeight.w700)),
                   ]),
                   const SizedBox(height: 16),
                   _field(_nameCtrl, 'Name *', Icons.home_rounded),
                   const SizedBox(height: 12),
-                  _field(_locationCtrl, 'Location / Hospital Nearby *', Icons.location_on_rounded),
+                  _field(_locationCtrl, 'Location / Hospital Nearby *',
+                      Icons.location_on_rounded),
                   const SizedBox(height: 12),
                   _field(_contactCtrl, 'Contact Number *', Icons.phone_rounded,
                       type: TextInputType.phone),
                   const SizedBox(height: 12),
                   Row(children: [
-                    Expanded(child: _field(_latCtrl, 'Latitude', Icons.gps_fixed_rounded,
+                    Expanded(child: _field(_latCtrl, 'Latitude',
+                        Icons.gps_fixed_rounded,
                         type: const TextInputType.numberWithOptions(decimal: true))),
                     const SizedBox(width: 10),
-                    Expanded(child: _field(_lngCtrl, 'Longitude', Icons.gps_not_fixed_rounded,
+                    Expanded(child: _field(_lngCtrl, 'Longitude',
+                        Icons.gps_not_fixed_rounded,
                         type: const TextInputType.numberWithOptions(decimal: true))),
                   ]),
                   const SizedBox(height: 12),
-                  _field(_rateCtrl, 'Rate per Day (₹) *', Icons.currency_rupee_rounded,
+                  _field(_rateCtrl, 'Rate per Day (₹) *',
+                      Icons.currency_rupee_rounded,
                       type: TextInputType.number),
                   const SizedBox(height: 12),
 
-                  // Image picker
+                  // Image picker button
                   GestureDetector(
-                    onTap: _pickImage,
+                    onTap: _saving ? null : _showPickerSheet,
                     child: Container(
                       height: 52,
                       decoration: BoxDecoration(
-                        color: Colors.white, borderRadius: BorderRadius.circular(12),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: const Color(0xFFBBDEFB), width: 1.5),
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -265,28 +354,55 @@ class _AdminHomestayManagementScreenState
                         const Icon(Icons.image_rounded, color: accentBlue, size: 20),
                         const SizedBox(width: 8),
                         Expanded(child: Text(
-                          _pickedImageName ?? 'Tap to pick image (optional)',
-                          style: TextStyle(fontSize: 13, color: _pickedImageBytes != null ? Colors.black87 : Colors.grey),
+                          _pickedFile?.name ?? 'Tap to pick image (optional)',
+                          style: TextStyle(fontSize: 13,
+                              color: _pickedFile != null ? Colors.black87 : Colors.grey),
                           overflow: TextOverflow.ellipsis,
                         )),
                         const Icon(Icons.upload_rounded, color: deepBlue, size: 20),
                       ]),
                     ),
                   ),
-                  if (_pickedImageBytes != null) ...[
+
+                  // Preview
+                  if (_previewBytes != null) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(_pickedImageBytes!, height: 110, width: double.infinity, fit: BoxFit.cover),
+                      child: Image.memory(_previewBytes!,
+                          height: 110, width: double.infinity,
+                          fit: BoxFit.cover, cacheHeight: 220),
                     ),
                   ],
+
+                  // Upload progress bar
                   if (_uploadProgress != null) ...[
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(value: _uploadProgress,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: const AlwaysStoppedAnimation(deepBlue)),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: _uploadProgress,
+                            minHeight: 6,
+                            backgroundColor: Colors.grey.shade200,
+                            valueColor: const AlwaysStoppedAnimation(deepBlue),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${((_uploadProgress ?? 0) * 100).toInt()}%',
+                        style: const TextStyle(fontSize: 12, color: deepBlue,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ]),
+                    const SizedBox(height: 4),
+                    const Text('Uploading image to server…',
+                        style: TextStyle(fontSize: 11, color: Colors.grey)),
                   ],
-                  // ── Inline error box ────────────────────────────────
+
+                  // Error box
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 10),
                     Container(
@@ -297,7 +413,8 @@ class _AdminHomestayManagementScreenState
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.red.shade200),
                       ),
-                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                         const Icon(Icons.error_outline, color: Colors.red, size: 18),
                         const SizedBox(width: 8),
                         Expanded(child: Text(_errorMessage!,
@@ -309,36 +426,51 @@ class _AdminHomestayManagementScreenState
                       ]),
                     ),
                   ],
+
                   const SizedBox(height: 18),
+
+                  // Save button
                   SizedBox(
                     width: double.infinity, height: 50,
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: deepBlue, foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                       onPressed: _saving ? null : _addHomestay,
                       icon: _saving
                           ? const SizedBox(width: 18, height: 18,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2))
                           : const Icon(Icons.add_circle_outline, size: 20),
-                      label: Text(_saving ? 'Saving…' : 'Add Homestay',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                      label: Text(
+                        _saving
+                            ? (_uploadProgress != null
+                                ? 'Uploading… ${((_uploadProgress ?? 0) * 100).toInt()}%'
+                                : 'Saving…')
+                            : 'Add Homestay',
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ),
                 ]),
               ),
 
-              // ── List ────────────────────────────────────────────────
+              // ── List header ──────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
                 child: Row(children: [
                   const Icon(Icons.list_alt_rounded, color: deepBlue, size: 20),
                   const SizedBox(width: 8),
                   const Text('Homestay List',
-                      style: TextStyle(color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+                      style: TextStyle(color: deepBlue, fontSize: 16,
+                          fontWeight: FontWeight.w700)),
                 ]),
               ),
+
+              // ── Firestore list ───────────────────────────────────────
               StreamBuilder<QuerySnapshot>(
                 stream: _col.orderBy('createdAt', descending: false).snapshots(),
                 builder: (context, snap) {
@@ -351,7 +483,7 @@ class _AdminHomestayManagementScreenState
                   if (snap.hasError) {
                     return Padding(
                       padding: const EdgeInsets.all(20),
-                      child: Center(child: Text('Error loading: ${snap.error}',
+                      child: Center(child: Text('Error: ${snap.error}',
                           style: const TextStyle(color: Colors.red))),
                     );
                   }
@@ -374,28 +506,42 @@ class _AdminHomestayManagementScreenState
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         decoration: BoxDecoration(
-                          color: Colors.white, borderRadius: BorderRadius.circular(16),
-                          border: const Border(left: BorderSide(color: deepBlue, width: 4)),
-                          boxShadow: [BoxShadow(color: deepBlue.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 2))],
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: const Border(
+                              left: BorderSide(color: deepBlue, width: 4)),
+                          boxShadow: [BoxShadow(
+                              color: deepBlue.withValues(alpha: 0.06),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2))],
                         ),
                         child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 6),
                           leading: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
                             child: imageUrl.isNotEmpty
-                                ? Image.network(imageUrl, width: 42, height: 42, fit: BoxFit.cover,
+                                ? Image.network(imageUrl,
+                                    width: 42, height: 42,
+                                    fit: BoxFit.cover, cacheWidth: 84,
                                     errorBuilder: (_, __, ___) => _placeholder())
                                 : _placeholder(),
                           ),
                           title: Text(data['name'] ?? '',
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          subtitle: Text('${data['location'] ?? ''} · ₹${data['rate'] ?? 0}/day',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 14)),
+                          subtitle: Text(
+                              '${data['location'] ?? ''} · ₹${data['rate'] ?? 0}/day',
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey.shade500)),
                           trailing: IconButton(
                             icon: Container(
                               padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(8)),
-                              child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
+                              decoration: BoxDecoration(
+                                  color: const Color(0xFFFFEBEE),
+                                  borderRadius: BorderRadius.circular(8)),
+                              child: const Icon(Icons.delete_outline_rounded,
+                                  color: Colors.red, size: 18),
                             ),
                             onPressed: () => _delete(docs[i].id),
                           ),
@@ -423,12 +569,15 @@ class _AdminHomestayManagementScreenState
       keyboardType: type,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: mediumBlue, fontWeight: FontWeight.w500, fontSize: 14),
+        labelStyle: const TextStyle(
+            color: mediumBlue, fontWeight: FontWeight.w500, fontSize: 14),
         prefixIcon: Icon(icon, color: accentBlue, size: 20),
         filled: true, fillColor: Colors.white,
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFBBDEFB), width: 1.5)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: deepBlue, width: 2)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),

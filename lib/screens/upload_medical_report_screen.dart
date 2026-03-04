@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -32,6 +35,10 @@ class _UploadMedicalReportScreenState
   PlatformFile? _pickedFile;
   double? _uploadProgress; // null = not uploading, 0‒1 = progress
 
+  // Store task & subscription so they can be cancelled on dispose
+  UploadTask? _currentUploadTask;
+  StreamSubscription<TaskSnapshot>? _uploadSubscription;
+
   static const int _maxFileSizeBytes = 10 * 1024 * 1024; // 10 MB hard limit
   static const int _imageQuality = 75; // JPEG/PNG compress to 75% quality
 
@@ -54,6 +61,8 @@ class _UploadMedicalReportScreenState
 
   @override
   void dispose() {
+    _uploadSubscription?.cancel();
+    _currentUploadTask?.cancel();
     _patientIdCtrl.dispose();
     _patientNameCtrl.dispose();
     _labNameCtrl.dispose();
@@ -66,14 +75,15 @@ class _UploadMedicalReportScreenState
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-      withData: true,
+      // On mobile we only need the path — loading bytes into RAM causes lag.
+      // On web there is no path so we must use withData.
+      withData: kIsWeb,
       withReadStream: false,
     );
 
     if (result != null && result.files.isNotEmpty) {
       final file = result.files.first;
 
-      // Reject files over the hard limit before doing any work
       if (file.size > _maxFileSizeBytes) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -111,6 +121,9 @@ class _UploadMedicalReportScreenState
   }
 
   // ── Upload file to Firebase Storage, return download URL ──────────────────
+  // KEY FIX: use putFile() on mobile instead of putData().
+  // putData() loads the entire file into RAM — causes 0% stall especially on PDFs.
+  // putFile() streams directly from disk — fast progress with no memory spike.
   Future<String?> _uploadFileToStorage(String patientId) async {
     if (_pickedFile == null) return null;
 
@@ -122,30 +135,60 @@ class _UploadMedicalReportScreenState
     final ref = FirebaseStorage.instance.ref().child(storagePath);
     final metadata = SettableMetadata(contentType: _mimeType(ext));
 
-    var bytes = _pickedFile!.bytes;
-    if (bytes == null) {
-      throw Exception('Could not read file bytes. Please re-select the file.');
+    UploadTask uploadTask;
+
+    if (kIsWeb) {
+      // Web has no file path — must use bytes
+      var bytes = _pickedFile!.bytes;
+      if (bytes == null) {
+        throw Exception('Could not read file bytes. Please re-select the file.');
+      }
+      if (ext == 'jpg' || ext == 'jpeg' || ext == 'png') {
+        if (mounted) setState(() => _uploadProgress = 0);
+        bytes = await _compressImageBytes(bytes, ext);
+      }
+      uploadTask = ref.putData(bytes, metadata);
+    } else {
+      // Mobile: stream directly from file path — no RAM load, instant progress
+      final filePath = _pickedFile!.path;
+      if (filePath == null) {
+        throw Exception('File path unavailable. Please re-select the file.');
+      }
+      uploadTask = ref.putFile(File(filePath), metadata);
     }
 
-    // Compress images before upload to cut transfer size significantly
-    if (ext == 'jpg' || ext == 'jpeg' || ext == 'png') {
-      setState(() => _uploadProgress = 0); // show spinner while compressing
-      bytes = await _compressImageBytes(bytes, ext);
-    }
+    _currentUploadTask = uploadTask;
 
-    final UploadTask uploadTask = ref.putData(bytes, metadata);
-
-    // Track upload progress
-    uploadTask.snapshotEvents.listen((snapshot) {
+    // Store subscription so it can be cancelled on dispose
+    await _uploadSubscription?.cancel();
+    _uploadSubscription = uploadTask.snapshotEvents.listen((snapshot) {
       if (!mounted) return;
-      final progress =
-          snapshot.bytesTransferred / snapshot.totalBytes;
+      final progress = snapshot.totalBytes > 0
+          ? snapshot.bytesTransferred / snapshot.totalBytes
+          : 0.0;
       setState(() => _uploadProgress = progress);
+    }, onError: (_) {
+      if (mounted) setState(() => _uploadProgress = null);
     });
 
-    final snapshot = await uploadTask;
-    setState(() => _uploadProgress = null);
-    return await snapshot.ref.getDownloadURL();
+    try {
+      final snapshot = await uploadTask.timeout(
+        const Duration(seconds: 120), // PDFs may be large — allow 2 min
+        onTimeout: () => throw TimeoutException(
+            'Upload timed out. Check your connection and try again.'),
+      );
+      await _uploadSubscription?.cancel();
+      _uploadSubscription = null;
+      _currentUploadTask = null;
+      if (mounted) setState(() => _uploadProgress = null);
+      return await snapshot.ref.getDownloadURL();
+    } catch (e) {
+      await _uploadSubscription?.cancel();
+      _uploadSubscription = null;
+      _currentUploadTask = null;
+      if (mounted) setState(() => _uploadProgress = null);
+      rethrow;
+    }
   }
 
   String _mimeType(String ext) {
@@ -262,6 +305,8 @@ class _UploadMedicalReportScreenState
   }
 
   void _resetForm() {
+    _uploadSubscription?.cancel();
+    _currentUploadTask?.cancel();
     _formKey.currentState?.reset();
     _patientIdCtrl.clear();
     _patientNameCtrl.clear();
@@ -561,7 +606,11 @@ class _UploadMedicalReportScreenState
                             strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.cloud_upload_rounded, size: 20),
                 label: Text(
-                  _isSaving ? 'Uploading…' : 'Submit Report',
+                  _isSaving
+                      ? (_uploadProgress != null
+                          ? 'Uploading… ${((_uploadProgress ?? 0) * 100).toInt()}%'
+                          : 'Saving…')
+                      : 'Submit Report',
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700),
                 ),

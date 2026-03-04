@@ -6,6 +6,7 @@ import 'screens/super_admin_dashboard.dart';
 import 'patient_dashboard.dart';
 import 'doctor/doctor_home_screen.dart';
 import 'admin_dashboard.dart';
+import 'services/notification_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -109,6 +110,9 @@ class _LoginPageState extends State<LoginPage>
         isActive: result.user!.isActive,
       ));
     }
+
+    // Initialise Firestore-backed notification stream for this user
+    NotificationService.instance.init();
 
     setState(() => _isLoading = false);
     if (!mounted) return;

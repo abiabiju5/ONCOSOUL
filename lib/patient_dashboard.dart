@@ -108,6 +108,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 ),
                 onPressed: () {
                   Navigator.pop(ctx);
+                  NotificationService.instance.reset();
                   Navigator.pushAndRemoveUntil(context,
                       MaterialPageRoute(builder: (_) => const LoginPage()), (route) => false);
                 },

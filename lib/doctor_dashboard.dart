@@ -226,6 +226,7 @@ class _DoctorDashboardState extends State<DoctorDashboard>
 
     if (shouldLogout == true && mounted) {
       AppUserSession.clear();
+      NotificationService.instance.reset();
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
