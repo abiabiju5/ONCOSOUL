@@ -1,11 +1,7 @@
-import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import '../services/cloudinary_service.dart';
 import '../services/doctor_service.dart';
 import '../models/app_user_session.dart';
 
@@ -19,50 +15,35 @@ class UploadMedicalReportScreen extends StatefulWidget {
 
 class _UploadMedicalReportScreenState
     extends State<UploadMedicalReportScreen> {
-  final _service = DoctorService();
-  final _formKey = GlobalKey<FormState>();
+  final _service  = DoctorService();
+  final _formKey  = GlobalKey<FormState>();
 
-  final _patientIdCtrl = TextEditingController();
+  final _patientIdCtrl   = TextEditingController();
   final _patientNameCtrl = TextEditingController();
-  final _labNameCtrl = TextEditingController();
-  final _notesCtrl = TextEditingController();
+  final _labNameCtrl     = TextEditingController();
+  final _notesCtrl       = TextEditingController();
 
-  String _selectedReportType = 'Blood Test';
-  DateTime _selectedDate = DateTime.now();
-  bool _isSaving = false;
+  String   _selectedReportType = 'Blood Test';
+  DateTime _selectedDate        = DateTime.now();
+  bool     _isSaving            = false;
 
-  // ── File picker state ──────────────────────────────────────────────────────
   PlatformFile? _pickedFile;
-  double? _uploadProgress; // null = not uploading, 0‒1 = progress
+  double        _uploadProgress = 0.0;
+  bool          _isUploading    = false;
 
-  // Store task & subscription so they can be cancelled on dispose
-  UploadTask? _currentUploadTask;
-  StreamSubscription<TaskSnapshot>? _uploadSubscription;
+  static const int _maxBytes = 10 * 1024 * 1024;
 
-  static const int _maxFileSizeBytes = 10 * 1024 * 1024; // 10 MB hard limit
-  static const int _imageQuality = 75; // JPEG/PNG compress to 75% quality
-
-  static const Color _deepBlue = Color(0xFF0D47A1);
-  static const Color _lightBlue = Color(0xFFE8F0FE);
+  static const Color _deepBlue      = Color(0xFF0D47A1);
+  static const Color _lightBlue     = Color(0xFFE8F0FE);
   static const Color _textSecondary = Color(0xFF6B7280);
 
   static const List<String> _reportTypes = [
-    'Blood Test',
-    'CT Scan',
-    'MRI Scan',
-    'Biopsy',
-    'X-Ray',
-    'Ultrasound',
-    'PET Scan',
-    'Pathology Report',
-    'Endoscopy',
-    'Other',
+    'Blood Test', 'CT Scan', 'MRI Scan', 'Biopsy', 'X-Ray',
+    'Ultrasound', 'PET Scan', 'Pathology Report', 'Endoscopy', 'Other',
   ];
 
   @override
   void dispose() {
-    _uploadSubscription?.cancel();
-    _currentUploadTask?.cancel();
     _patientIdCtrl.dispose();
     _patientNameCtrl.dispose();
     _labNameCtrl.dispose();
@@ -70,166 +51,89 @@ class _UploadMedicalReportScreenState
     super.dispose();
   }
 
-  // ── Pick file ──────────────────────────────────────────────────────────────
+  // ── Pick file ─────────────────────────────────────────────────────────────
+
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-      // On mobile we only need the path — loading bytes into RAM causes lag.
-      // On web there is no path so we must use withData.
-      withData: kIsWeb,
+      withData: true,         // always load bytes — needed for Cloudinary upload
       withReadStream: false,
     );
-
-    if (result != null && result.files.isNotEmpty) {
-      final file = result.files.first;
-
-      if (file.size > _maxFileSizeBytes) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'File is too large (${_formatBytes(file.size)}). Maximum allowed size is 10 MB.'),
-          backgroundColor: Colors.orange.shade700,
-        ));
-        return;
-      }
-
-      setState(() => _pickedFile = file);
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.size > _maxBytes) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('File too large (${_fmtBytes(file.size)}). Max 10 MB.'),
+        backgroundColor: Colors.orange.shade700,
+      ));
+      return;
     }
+    setState(() => _pickedFile = file);
   }
 
-  void _removeFile() => setState(() => _pickedFile = null);
+  void _removeFile() => setState(() {
+    _pickedFile     = null;
+    _uploadProgress = 0.0;
+    _isUploading    = false;
+  });
 
-  // ── Compress image bytes (JPG / PNG only) ─────────────────────────────────
-  Future<Uint8List> _compressImageBytes(Uint8List input, String ext) async {
-    try {
-      final codec = await ui.instantiateImageCodec(
-        input,
-        targetWidth: 1600, // cap long edge at 1600 px — preserves detail
-      );
-      final frame = await codec.getNextFrame();
-      final format = ext.toLowerCase() == 'png'
-          ? ui.ImageByteFormat.png
-          : ui.ImageByteFormat.rawRgba; // JPEG not directly available in dart:ui
-      final byteData = await frame.image.toByteData(format: format);
-      frame.image.dispose();
-      if (byteData == null) return input; // fall back to original if it fails
-      return byteData.buffer.asUint8List();
-    } catch (_) {
-      return input; // never block the upload due to compression failure
-    }
-  }
+  // ── Upload to Cloudinary ──────────────────────────────────────────────────
 
-  // ── Upload file to Firebase Storage, return download URL ──────────────────
-  // KEY FIX: use putFile() on mobile instead of putData().
-  // putData() loads the entire file into RAM — causes 0% stall especially on PDFs.
-  // putFile() streams directly from disk — fast progress with no memory spike.
-  Future<String?> _uploadFileToStorage(String patientId) async {
+  Future<String?> _uploadToCloudinary(String patientId) async {
     if (_pickedFile == null) return null;
 
-    final ext = _pickedFile!.extension?.toLowerCase() ?? 'pdf';
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final storagePath =
-        'medical_reports/$patientId/${timestamp}_${_pickedFile!.name}';
-
-    final ref = FirebaseStorage.instance.ref().child(storagePath);
-    final metadata = SettableMetadata(contentType: _mimeType(ext));
-
-    UploadTask uploadTask;
-
-    if (kIsWeb) {
-      // Web has no file path — must use bytes
-      var bytes = _pickedFile!.bytes;
-      if (bytes == null) {
-        throw Exception('Could not read file bytes. Please re-select the file.');
-      }
-      if (ext == 'jpg' || ext == 'jpeg' || ext == 'png') {
-        if (mounted) setState(() => _uploadProgress = 0);
-        bytes = await _compressImageBytes(bytes, ext);
-      }
-      uploadTask = ref.putData(bytes, metadata);
-    } else {
-      // Mobile: stream directly from file path — no RAM load, instant progress
-      final filePath = _pickedFile!.path;
-      if (filePath == null) {
-        throw Exception('File path unavailable. Please re-select the file.');
-      }
-      uploadTask = ref.putFile(File(filePath), metadata);
+    final bytes = _pickedFile!.bytes;
+    if (bytes == null) {
+      throw Exception('Cannot read file bytes. Please re-select the file.');
     }
 
-    _currentUploadTask = uploadTask;
-
-    // Store subscription so it can be cancelled on dispose
-    await _uploadSubscription?.cancel();
-    _uploadSubscription = uploadTask.snapshotEvents.listen((snapshot) {
-      if (!mounted) return;
-      final progress = snapshot.totalBytes > 0
-          ? snapshot.bytesTransferred / snapshot.totalBytes
-          : 0.0;
-      setState(() => _uploadProgress = progress);
-    }, onError: (_) {
-      if (mounted) setState(() => _uploadProgress = null);
-    });
+    if (mounted) setState(() { _isUploading = true; _uploadProgress = 0.0; });
 
     try {
-      final snapshot = await uploadTask.timeout(
-        const Duration(seconds: 120), // PDFs may be large — allow 2 min
-        onTimeout: () => throw TimeoutException(
-            'Upload timed out. Check your connection and try again.'),
+      final url = await CloudinaryService.uploadBytes(
+        bytes:    bytes,
+        folder:   'medical_reports/$patientId',
+        fileName: '${DateTime.now().millisecondsSinceEpoch}_${_pickedFile!.name}',
+        onProgress: (p) {
+          if (mounted) setState(() => _uploadProgress = p);
+        },
       );
-      await _uploadSubscription?.cancel();
-      _uploadSubscription = null;
-      _currentUploadTask = null;
-      if (mounted) setState(() => _uploadProgress = null);
-      return await snapshot.ref.getDownloadURL();
+      if (mounted) setState(() { _isUploading = false; _uploadProgress = 1.0; });
+      return url;
     } catch (e) {
-      await _uploadSubscription?.cancel();
-      _uploadSubscription = null;
-      _currentUploadTask = null;
-      if (mounted) setState(() => _uploadProgress = null);
+      if (mounted) setState(() { _isUploading = false; _uploadProgress = 0.0; });
       rethrow;
     }
   }
 
-  String _mimeType(String ext) {
-    switch (ext.toLowerCase()) {
-      case 'pdf':
-        return 'application/pdf';
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      default:
-        return 'application/octet-stream';
-    }
-  }
+  // ── Submit ────────────────────────────────────────────────────────────────
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
   Future<void> _submit() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSaving = true);
-    try {
-      final patientId = _patientIdCtrl.text.trim().toUpperCase();
-      final uploadedBy =
-          AppUserSession.currentUser?.name ?? 'Medical Staff';
+    setState(() { _isSaving = true; _uploadProgress = 0.0; });
 
-      // Upload file first (if one was picked)
+    try {
+      final patientId  = _patientIdCtrl.text.trim().toUpperCase();
+      final uploadedBy = AppUserSession.currentUser?.name ?? 'Medical Staff';
+
       String? fileUrl;
       if (_pickedFile != null) {
-        fileUrl = await _uploadFileToStorage(patientId);
+        fileUrl = await _uploadToCloudinary(patientId);
       }
 
       await _service.uploadMedicalReport(
-        patientId: patientId,
+        patientId:   patientId,
         patientName: _patientNameCtrl.text.trim(),
-        reportType: _selectedReportType,
-        labName: _labNameCtrl.text.trim(),
-        uploadedBy: uploadedBy,
-        reportDate: _selectedDate,
-        notes: _notesCtrl.text.trim(),
-        fileUrl: fileUrl,
+        reportType:  _selectedReportType,
+        labName:     _labNameCtrl.text.trim(),
+        uploadedBy:  uploadedBy,
+        reportDate:  _selectedDate,
+        notes:       _notesCtrl.text.trim(),
+        fileUrl:     fileUrl,
       );
 
       if (!mounted) return;
@@ -237,11 +141,12 @@ class _UploadMedicalReportScreenState
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Failed to upload report: $e'),
-        backgroundColor: Colors.red.shade600,
+        content: Text('Upload failed: $e'),
+        backgroundColor: Colors.red.shade700,
+        duration: const Duration(seconds: 8),
       ));
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() { _isSaving = false; _isUploading = false; });
     }
   }
 
@@ -250,41 +155,34 @@ class _UploadMedicalReportScreenState
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                  color: Colors.green.shade50, shape: BoxShape.circle),
-              child: const Icon(Icons.check_circle_rounded,
-                  color: Colors.green, size: 48),
-            ),
-            const SizedBox(height: 16),
-            const Text('Report Uploaded!',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1A1A2E))),
-            const SizedBox(height: 8),
-            const Text(
-              'The medical report has been saved to the patient\'s profile '
-              'and the patient has been notified.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: _textSecondary),
-            ),
-          ],
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+                color: Colors.green.shade50, shape: BoxShape.circle),
+            child: const Icon(Icons.check_circle_rounded,
+                color: Colors.green, size: 48),
+          ),
+          const SizedBox(height: 16),
+          const Text('Report Uploaded!',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1A2E))),
+          const SizedBox(height: 8),
+          const Text(
+            'The medical report has been saved to the patient\'s profile '
+            'and the patient has been notified.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: _textSecondary),
+          ),
+        ]),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
               Navigator.of(context).pop();
             },
-            child: const Text('Done',
-                style: TextStyle(color: _deepBlue)),
+            child: const Text('Done', style: TextStyle(color: _deepBlue)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -305,8 +203,6 @@ class _UploadMedicalReportScreenState
   }
 
   void _resetForm() {
-    _uploadSubscription?.cancel();
-    _currentUploadTask?.cancel();
     _formKey.currentState?.reset();
     _patientIdCtrl.clear();
     _patientNameCtrl.clear();
@@ -314,9 +210,10 @@ class _UploadMedicalReportScreenState
     _notesCtrl.clear();
     setState(() {
       _selectedReportType = 'Blood Test';
-      _selectedDate = DateTime.now();
-      _pickedFile = null;
-      _uploadProgress = null;
+      _selectedDate       = DateTime.now();
+      _pickedFile         = null;
+      _uploadProgress     = 0.0;
+      _isUploading        = false;
     });
   }
 
@@ -335,6 +232,8 @@ class _UploadMedicalReportScreenState
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -351,91 +250,73 @@ class _UploadMedicalReportScreenState
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // ── Info banner ────────────────────────────────────────────────
+
+            // Info banner
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: _lightBlue,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: _deepBlue.withValues(alpha: 0.25)),
+                border: Border.all(color: _deepBlue.withValues(alpha: 0.25)),
               ),
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: _deepBlue, size: 20),
+                  Icon(Icons.info_outline_rounded, color: _deepBlue, size: 20),
                   SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Upload lab or diagnostic reports for a patient. '
-                      'Reports will be instantly visible to the assigned '
-                      'doctor and the patient will be notified.',
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          color: Color(0xFF1A1A2E),
-                          height: 1.4),
-                    ),
-                  ),
+                  Expanded(child: Text(
+                    'Upload lab or diagnostic reports for a patient. '
+                    'Reports will be instantly visible to the assigned doctor '
+                    'and the patient will be notified.',
+                    style: TextStyle(fontSize: 12.5,
+                        color: Color(0xFF1A1A2E), height: 1.4),
+                  )),
                 ],
               ),
             ),
             const SizedBox(height: 16),
 
-            // ── Patient Information ────────────────────────────────────────
+            // Patient Information
             _sectionCard(
               title: 'Patient Information',
               icon: Icons.person_outline_rounded,
               children: [
-                _field(
-                  ctrl: _patientIdCtrl,
-                  label: 'Patient ID',
-                  hint: 'e.g. P0001',
-                  icon: Icons.badge_outlined,
-                  validator: _required,
-                  textCapitalization: TextCapitalization.characters,
-                ),
+                _field(ctrl: _patientIdCtrl, label: 'Patient ID',
+                    hint: 'e.g. P0001', icon: Icons.badge_outlined,
+                    validator: _required,
+                    textCapitalization: TextCapitalization.characters),
                 const SizedBox(height: 12),
-                _field(
-                  ctrl: _patientNameCtrl,
-                  label: 'Patient Name',
-                  hint: 'Full name as registered',
-                  icon: Icons.person_outline_rounded,
-                  validator: _required,
-                  textCapitalization: TextCapitalization.words,
-                ),
+                _field(ctrl: _patientNameCtrl, label: 'Patient Name',
+                    hint: 'Full name as registered',
+                    icon: Icons.person_outline_rounded,
+                    validator: _required,
+                    textCapitalization: TextCapitalization.words),
               ],
             ),
             const SizedBox(height: 16),
 
-            // ── Report Details ─────────────────────────────────────────────
+            // Report Details
             _sectionCard(
               title: 'Report Details',
               icon: Icons.description_outlined,
               children: [
-                // Report type dropdown
                 DropdownButtonFormField<String>(
                   value: _selectedReportType,
                   decoration: _inputDeco('Report Type',
                       icon: Icons.science_outlined),
                   items: _reportTypes
-                      .map((t) =>
-                          DropdownMenuItem(value: t, child: Text(t)))
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                       .toList(),
                   onChanged: (v) {
                     if (v != null) setState(() => _selectedReportType = v);
                   },
                 ),
                 const SizedBox(height: 12),
-                _field(
-                  ctrl: _labNameCtrl,
-                  label: 'Lab / Hospital Name',
-                  hint: 'e.g. City Diagnostics',
-                  icon: Icons.local_hospital_outlined,
-                  validator: _required,
-                ),
+                _field(ctrl: _labNameCtrl, label: 'Lab / Hospital Name',
+                    hint: 'e.g. City Diagnostics',
+                    icon: Icons.local_hospital_outlined,
+                    validator: _required),
                 const SizedBox(height: 12),
-                // Date picker
                 InkWell(
                   onTap: _pickDate,
                   borderRadius: BorderRadius.circular(10),
@@ -451,22 +332,19 @@ class _UploadMedicalReportScreenState
                       const Icon(Icons.calendar_today_rounded,
                           size: 18, color: _deepBlue),
                       const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Report Date',
-                              style: TextStyle(
-                                  fontSize: 11, color: _textSecondary)),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
-                            style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1A1A2E)),
-                          ),
-                        ],
-                      ),
+                      Column(crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        const Text('Report Date',
+                            style: TextStyle(fontSize: 11,
+                                color: _textSecondary)),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+                          style: const TextStyle(fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1A1A2E)),
+                        ),
+                      ]),
                       const Spacer(),
                       const Icon(Icons.edit_rounded,
                           size: 14, color: Colors.blueGrey),
@@ -474,26 +352,22 @@ class _UploadMedicalReportScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-                _field(
-                  ctrl: _notesCtrl,
-                  label: 'Notes / Remarks (optional)',
-                  hint: 'Any additional notes about this report…',
-                  icon: Icons.notes_rounded,
-                  maxLines: 3,
-                ),
+                _field(ctrl: _notesCtrl,
+                    label: 'Notes / Remarks (optional)',
+                    hint: 'Any additional notes…',
+                    icon: Icons.notes_rounded, maxLines: 3),
               ],
             ),
             const SizedBox(height: 16),
 
-            // ── File Attach ────────────────────────────────────────────────
+            // Attach File
             _sectionCard(
               title: 'Attach File (optional)',
               icon: Icons.attach_file_rounded,
               children: [
                 if (_pickedFile == null) ...[
-                  // Pick button
                   OutlinedButton.icon(
-                    onPressed: _pickFile,
+                    onPressed: _isSaving ? null : _pickFile,
                     icon: const Icon(Icons.upload_file_rounded),
                     label: const Text('Choose Report File'),
                     style: OutlinedButton.styleFrom(
@@ -508,13 +382,10 @@ class _UploadMedicalReportScreenState
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Supported formats: PDF, JPG, PNG',
-                    style:
-                        TextStyle(fontSize: 11, color: _textSecondary),
-                  ),
+                  const Text('Supported: PDF, JPG, PNG  •  Max 10 MB',
+                      style: TextStyle(fontSize: 11, color: _textSecondary)),
                 ] else ...[
-                  // File preview card
+                  // File card
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -522,71 +393,60 @@ class _UploadMedicalReportScreenState
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: Colors.green.shade200),
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            _fileIcon(_pickedFile!.extension ?? ''),
-                            color: _deepBlue,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _pickedFile!.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF1A1A2E)),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _formatBytes(_pickedFile!.size),
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.green.shade700),
-                              ),
-                            ],
-                          ),
-                        ),
+                    child: Row(children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.white,
+                            borderRadius: BorderRadius.circular(8)),
+                        child: Icon(_fileIcon(_pickedFile!.extension ?? ''),
+                            color: _deepBlue, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(_pickedFile!.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1A1A2E))),
+                        const SizedBox(height: 2),
+                        Text(_fmtBytes(_pickedFile!.size),
+                            style: TextStyle(fontSize: 11,
+                                color: Colors.green.shade700)),
+                      ])),
+                      if (!_isSaving)
                         IconButton(
                           onPressed: _removeFile,
                           icon: const Icon(Icons.close_rounded,
                               size: 18, color: Colors.redAccent),
-                          tooltip: 'Remove file',
                         ),
-                      ],
-                    ),
+                    ]),
                   ),
-                  // Upload progress bar (shown while submitting)
-                  if (_uploadProgress != null) ...[
-                    const SizedBox(height: 10),
+
+                  // Progress bar — always visible while saving
+                  if (_isSaving) ...[
+                    const SizedBox(height: 12),
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(6),
                       child: LinearProgressIndicator(
-                        value: _uploadProgress,
+                        value: _uploadProgress > 0 ? _uploadProgress : null,
                         backgroundColor: Colors.grey.shade200,
                         valueColor:
                             const AlwaysStoppedAnimation<Color>(_deepBlue),
-                        minHeight: 6,
+                        minHeight: 8,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
-                      'Uploading… ${((_uploadProgress ?? 0) * 100).toStringAsFixed(0)}%',
-                      style: const TextStyle(
-                          fontSize: 11, color: _textSecondary),
+                      _isUploading
+                          ? (_uploadProgress > 0
+                              ? 'Uploading… ${(_uploadProgress * 100).toStringAsFixed(0)}%'
+                              : 'Connecting to Cloudinary…')
+                          : 'Saving report to database…',
+                      style: const TextStyle(fontSize: 12,
+                          color: _deepBlue, fontWeight: FontWeight.w500),
                     ),
                   ],
                 ],
@@ -594,21 +454,21 @@ class _UploadMedicalReportScreenState
             ),
             const SizedBox(height: 28),
 
-            // ── Submit ─────────────────────────────────────────────────────
+            // Submit button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
+                    ? const SizedBox(width: 18, height: 18,
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.cloud_upload_rounded, size: 20),
                 label: Text(
                   _isSaving
-                      ? (_uploadProgress != null
-                          ? 'Uploading… ${((_uploadProgress ?? 0) * 100).toInt()}%'
+                      ? (_isUploading
+                          ? (_uploadProgress > 0
+                              ? 'Uploading… ${(_uploadProgress * 100).toInt()}%'
+                              : 'Connecting…')
                           : 'Saving…')
                       : 'Submit Report',
                   style: const TextStyle(
@@ -632,74 +492,50 @@ class _UploadMedicalReportScreenState
     );
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   IconData _fileIcon(String ext) {
     switch (ext.toLowerCase()) {
-      case 'pdf':
-        return Icons.picture_as_pdf_rounded;
+      case 'pdf':  return Icons.picture_as_pdf_rounded;
       case 'jpg':
       case 'jpeg':
-      case 'png':
-        return Icons.image_rounded;
-      default:
-        return Icons.insert_drive_file_rounded;
+      case 'png':  return Icons.image_rounded;
+      default:     return Icons.insert_drive_file_rounded;
     }
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  String _fmtBytes(int b) {
+    if (b < 1024)        return '$b B';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
+    return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  Widget _sectionCard({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
+  Widget _sectionCard({required String title, required IconData icon,
+      required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2)),
-        ],
+        color: Colors.white, borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8, offset: const Offset(0, 2))],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: _lightBlue,
-              borderRadius:
-                  BorderRadius.vertical(top: Radius.circular(14)),
-            ),
-            child: Row(
-              children: [
-                Icon(icon, size: 18, color: _deepBlue),
-                const SizedBox(width: 8),
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: _deepBlue)),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: children),
-          ),
-        ],
-      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: const BoxDecoration(color: _lightBlue,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+          child: Row(children: [
+            Icon(icon, size: 18, color: _deepBlue),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(fontSize: 14,
+                fontWeight: FontWeight.w700, color: _deepBlue)),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: children),
+        ),
+      ]),
     );
   }
 
@@ -707,39 +543,26 @@ class _UploadMedicalReportScreenState
     return InputDecoration(
       labelText: label,
       prefixIcon: icon != null
-          ? Icon(icon, size: 20, color: _textSecondary)
-          : null,
-      filled: true,
-      fillColor: Colors.grey.shade50,
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          ? Icon(icon, size: 20, color: _textSecondary) : null,
+      filled: true, fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: Colors.grey.shade300)),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: Colors.grey.shade300)),
-      focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: _deepBlue, width: 1.5)),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       labelStyle: const TextStyle(fontSize: 13),
     );
   }
 
-  Widget _field({
-    required TextEditingController ctrl,
-    required String label,
-    required IconData icon,
-    String? hint,
-    int maxLines = 1,
-    String? Function(String?)? validator,
-    TextCapitalization textCapitalization = TextCapitalization.none,
-  }) {
+  Widget _field({required TextEditingController ctrl, required String label,
+      required IconData icon, String? hint, int maxLines = 1,
+      String? Function(String?)? validator,
+      TextCapitalization textCapitalization = TextCapitalization.none}) {
     return TextFormField(
-      controller: ctrl,
-      maxLines: maxLines,
-      validator: validator,
-      textCapitalization: textCapitalization,
+      controller: ctrl, maxLines: maxLines,
+      validator: validator, textCapitalization: textCapitalization,
       decoration: _inputDeco(label, icon: maxLines == 1 ? icon : null)
           .copyWith(hintText: hint),
       style: const TextStyle(fontSize: 13),

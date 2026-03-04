@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/patient_service.dart';
+import '../services/consultation_room_service.dart';
 
 class MyAppointmentsScreen extends StatelessWidget {
   const MyAppointmentsScreen({super.key});
@@ -160,6 +162,42 @@ class _AppointmentCard extends StatelessWidget {
             const SizedBox(height: 14),
             Divider(height: 1, color: Colors.grey.shade100),
             const SizedBox(height: 12),
+            // Live Join Call button — appears only when doctor has started the room
+            StreamBuilder<ConsultationRoom?>(
+              stream: ConsultationRoomService().roomStream(appt.id),
+              builder: (context, snap) {
+                final room = snap.data;
+                final isActive = room?.isActive == true;
+                if (!isActive) return const SizedBox.shrink();
+                return Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final uri = Uri.parse(room!.joinUrl);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri,
+                                mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        icon: const Icon(Icons.videocam_rounded, size: 16),
+                        label: const Text('Join Video Call'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade600,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                );
+              },
+            ),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

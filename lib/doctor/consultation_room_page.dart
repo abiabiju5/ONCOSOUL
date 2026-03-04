@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/doctor_service.dart';
 import '../services/prescription_pdf_service.dart';
+import '../services/consultation_room_service.dart';
 import '../models/app_user_session.dart';
 
 class ConsultationRoomPage extends StatefulWidget {
@@ -22,6 +24,11 @@ class ConsultationRoomPage extends StatefulWidget {
 class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     with TickerProviderStateMixin {
   final _service = DoctorService();
+  final _roomService = ConsultationRoomService();
+
+  ConsultationRoom? _room;
+  bool _isStartingCall = false;
+  bool _isEndingCall   = false;
 
   final _remarksCtrl = TextEditingController();
   final _medicineCtrl = TextEditingController();
@@ -167,6 +174,46 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     }
   }
 
+  Future<void> _startCall() async {
+    setState(() => _isStartingCall = true);
+    try {
+      final doctorId = AppUserSession.userId;
+      final room = await _roomService.startRoom(
+        appointmentId: widget.appointmentId,
+        doctorId: doctorId,
+        patientId: widget.patientId,
+      );
+      setState(() => _room = room);
+      await _launchRoom(room.joinUrl);
+    } catch (e) {
+      _snack('Failed to start call: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isStartingCall = false);
+    }
+  }
+
+  Future<void> _endCall() async {
+    setState(() => _isEndingCall = true);
+    try {
+      await _roomService.endRoom(widget.appointmentId);
+      setState(() => _room = null);
+      _snack('Call ended.');
+    } catch (e) {
+      _snack('Failed to end call: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isEndingCall = false);
+    }
+  }
+
+  Future<void> _launchRoom(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      _snack('Could not open video call. Please check your browser.', isError: true);
+    }
+  }
+
   void _snack(String msg, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -214,27 +261,176 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
               color: _deepBlue2,
               isExpanded: _videoExpanded,
               onToggle: () => setState(() => _videoExpanded = !_videoExpanded),
-              child: Container(
-                height: 200,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.black87,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF0D47A1), width: 2),
-                ),
-                child: const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+              child: StreamBuilder<ConsultationRoom?>(
+                stream: _roomService.roomStream(widget.appointmentId),
+                builder: (context, snap) {
+                  final room = snap.data;
+                  final isActive = room?.isActive == true;
+
+                  return Column(
                     children: [
-                      Icon(Icons.videocam_rounded,
-                          size: 60, color: Colors.white70),
-                      SizedBox(height: 10),
-                      Text('Video call in progress',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 14)),
+                      // ── Room status card ──────────────────────────────
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? const Color(0xFFE8F5E9)
+                              : const Color(0xFFF0F4FF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isActive
+                                ? Colors.green.shade300
+                                : _deepBlue2.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? Colors.green.shade100
+                                    : _lightBlue2,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                isActive
+                                    ? Icons.videocam_rounded
+                                    : Icons.videocam_off_rounded,
+                                color: isActive
+                                    ? Colors.green.shade700
+                                    : _deepBlue2,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isActive
+                                        ? 'Call in Progress'
+                                        : 'No Active Call',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
+                                      color: isActive
+                                          ? Colors.green.shade800
+                                          : _deepBlue2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    isActive
+                                        ? 'Patient can join using the notification link.'
+                                        : 'Start the call to let the patient join.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isActive
+                                          ? Colors.green.shade700
+                                          : _textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isActive)
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // ── Action buttons ────────────────────────────────
+                      if (!isActive)
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: _isStartingCall
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2))
+                                : const Icon(Icons.videocam_rounded, size: 18),
+                            label: Text(_isStartingCall
+                                ? 'Starting…'
+                                : 'Start Video Call'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _deepBlue2,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(11)),
+                            ),
+                            onPressed: _isStartingCall ? null : _startCall,
+                          ),
+                        )
+                      else
+                        Row(
+                          children: [
+                            // Rejoin button
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.open_in_new_rounded,
+                                    size: 15),
+                                label: const Text('Rejoin'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _deepBlue2,
+                                  side: BorderSide(
+                                      color: _deepBlue2.withValues(alpha: 0.5)),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 11),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(11)),
+                                ),
+                                onPressed: () =>
+                                    _launchRoom(room!.joinUrl),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            // End call button
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: _isEndingCall
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2))
+                                    : const Icon(Icons.call_end_rounded,
+                                        size: 16),
+                                label: Text(_isEndingCall
+                                    ? 'Ending…'
+                                    : 'End Call'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade600,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 11),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(11)),
+                                ),
+                                onPressed: _isEndingCall ? null : _endCall,
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
-                  ),
-                ),
+                  );
+                },
               ),
             ),
 

@@ -1,11 +1,8 @@
-import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import '../services/cloudinary_service.dart';
 
 class AdminHomestayManagementScreen extends StatefulWidget {
   const AdminHomestayManagementScreen({super.key});
@@ -24,15 +21,12 @@ class _AdminHomestayManagementScreenState
   final _lngCtrl      = TextEditingController();
   final _rateCtrl     = TextEditingController();
 
-  // Store XFile so we can use .path on mobile (avoids loading all bytes into RAM)
   XFile?     _pickedFile;
-  Uint8List? _previewBytes;   // only used for the on-screen preview
-  bool    _saving = false;
-  double? _uploadProgress;
-  String? _errorMessage;
-
-  StreamSubscription<TaskSnapshot>? _uploadSubscription;
-  UploadTask? _currentUploadTask;
+  Uint8List? _previewBytes;
+  bool       _saving         = false;
+  double     _uploadProgress = 0.0;
+  bool       _isUploading    = false;
+  String?    _errorMessage;
 
   final ImagePicker _picker = ImagePicker();
 
@@ -46,8 +40,6 @@ class _AdminHomestayManagementScreenState
 
   @override
   void dispose() {
-    _uploadSubscription?.cancel();
-    _currentUploadTask?.cancel();
     for (final c in [_nameCtrl, _locationCtrl, _contactCtrl,
                      _latCtrl, _lngCtrl, _rateCtrl]) {
       c.dispose();
@@ -55,7 +47,7 @@ class _AdminHomestayManagementScreenState
     super.dispose();
   }
 
-  // ── Image picker ─────────────────────────────────────────────────────────
+  // ── Image picker ──────────────────────────────────────────────────────────
 
   Future<void> _pickImage(ImageSource source) async {
     Navigator.pop(context);
@@ -67,8 +59,6 @@ class _AdminHomestayManagementScreenState
         maxHeight: 1024,
       );
       if (f == null || !mounted) return;
-
-      // Read bytes only for preview display — not for upload
       final bytes = await f.readAsBytes();
       if (!mounted) return;
       setState(() {
@@ -126,66 +116,31 @@ class _AdminHomestayManagementScreenState
     );
   }
 
-  // ── Upload ───────────────────────────────────────────────────────────────
-  // KEY FIX: use putFile() on mobile instead of putData()
-  // putData() loads the entire image into memory and is much slower.
-  // putFile() streams directly from disk — faster and no RAM spike.
+  // ── Upload to Cloudinary ──────────────────────────────────────────────────
 
   Future<String?> _uploadImage() async {
-    if (_pickedFile == null) return null;
+    if (_pickedFile == null || _previewBytes == null) return null;
 
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final ref = FirebaseStorage.instance
-        .ref()
-        .child('homestay_images/$fileName');
-
-    UploadTask task;
-
-    if (kIsWeb) {
-      // Web has no file path — must use bytes
-      final bytes = await _pickedFile!.readAsBytes();
-      task = ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
-    } else {
-      // Mobile: stream from file path — much faster, avoids RAM load
-      task = ref.putFile(
-        File(_pickedFile!.path),
-        SettableMetadata(contentType: 'image/jpeg'),
-      );
-    }
-
-    _currentUploadTask = task;
-
-    await _uploadSubscription?.cancel();
-    _uploadSubscription = task.snapshotEvents.listen((snap) {
-      if (!mounted) return;
-      final progress = snap.totalBytes > 0
-          ? snap.bytesTransferred / snap.totalBytes
-          : 0.0;
-      setState(() => _uploadProgress = progress);
-    }, onError: (_) {
-      if (mounted) setState(() => _uploadProgress = null);
-    });
+    if (mounted) setState(() { _isUploading = true; _uploadProgress = 0.0; });
 
     try {
-      final snap = await task.timeout(
-        const Duration(seconds: 60),
-        onTimeout: () => throw TimeoutException('Upload timed out after 60s'),
+      final url = await CloudinaryService.uploadBytes(
+        bytes:    _previewBytes!,
+        folder:   'homestay_images',
+        fileName: '${DateTime.now().millisecondsSinceEpoch}.jpg',
+        onProgress: (p) {
+          if (mounted) setState(() => _uploadProgress = p);
+        },
       );
-      await _uploadSubscription?.cancel();
-      _uploadSubscription = null;
-      _currentUploadTask = null;
-      if (mounted) setState(() => _uploadProgress = null);
-      return await snap.ref.getDownloadURL();
+      if (mounted) setState(() { _isUploading = false; _uploadProgress = 1.0; });
+      return url;
     } catch (e) {
-      await _uploadSubscription?.cancel();
-      _uploadSubscription = null;
-      _currentUploadTask = null;
-      if (mounted) setState(() => _uploadProgress = null);
+      if (mounted) setState(() { _isUploading = false; _uploadProgress = 0.0; });
       rethrow;
     }
   }
 
-  // ── Save ─────────────────────────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────────────
 
   Future<void> _addHomestay() async {
     FocusScope.of(context).unfocus();
@@ -195,8 +150,7 @@ class _AdminHomestayManagementScreenState
         _locationCtrl.text.trim().isEmpty ||
         _contactCtrl.text.trim().isEmpty ||
         _rateCtrl.text.trim().isEmpty) {
-      setState(() => _errorMessage =
-          'Please fill in Name, Location, Contact and Rate.');
+      setState(() => _errorMessage = 'Please fill in Name, Location, Contact and Rate.');
       return;
     }
 
@@ -207,10 +161,8 @@ class _AdminHomestayManagementScreenState
         try {
           imageUrl = await _uploadImage() ?? '';
         } catch (e) {
-          if (mounted) {
-            setState(() => _errorMessage =
-                'Image upload failed: $e\nSaving without image…');
-          }
+          if (mounted) setState(() =>
+              _errorMessage = 'Image upload failed: $e\nSaving without image…');
         }
       }
 
@@ -226,14 +178,14 @@ class _AdminHomestayManagementScreenState
       });
 
       for (final c in [_nameCtrl, _locationCtrl, _contactCtrl,
-                       _latCtrl, _lngCtrl, _rateCtrl]) {
-        c.clear();
-      }
+                       _latCtrl, _lngCtrl, _rateCtrl]) c.clear();
+
       if (mounted) {
         setState(() {
-          _pickedFile   = null;
-          _previewBytes = null;
-          _errorMessage = null;
+          _pickedFile    = null;
+          _previewBytes  = null;
+          _errorMessage  = null;
+          _uploadProgress = 0.0;
         });
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Homestay added successfully ✓'),
@@ -256,8 +208,7 @@ class _AdminHomestayManagementScreenState
         title: const Text('Delete Homestay'),
         content: const Text('Remove this homestay?'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
+          TextButton(onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -270,7 +221,7 @@ class _AdminHomestayManagementScreenState
     if (ok == true) await _col.doc(docId).delete();
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -292,17 +243,15 @@ class _AdminHomestayManagementScreenState
             physics: const ClampingScrollPhysics(),
             child: Column(children: [
 
-              // ── Form card ────────────────────────────────────────────
+              // ── Form ──────────────────────────────────────────────────────
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 20, 16, 0),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white, borderRadius: BorderRadius.circular(20),
                   boxShadow: [BoxShadow(
                       color: deepBlue.withValues(alpha: 0.08),
-                      blurRadius: 20,
-                      offset: const Offset(0, 4))],
+                      blurRadius: 20, offset: const Offset(0, 4))],
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -339,14 +288,13 @@ class _AdminHomestayManagementScreenState
                       type: TextInputType.number),
                   const SizedBox(height: 12),
 
-                  // Image picker button
+                  // Image picker
                   GestureDetector(
                     onTap: _saving ? null : _showPickerSheet,
                     child: Container(
                       height: 52,
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.white, borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: const Color(0xFFBBDEFB), width: 1.5),
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -356,7 +304,8 @@ class _AdminHomestayManagementScreenState
                         Expanded(child: Text(
                           _pickedFile?.name ?? 'Tap to pick image (optional)',
                           style: TextStyle(fontSize: 13,
-                              color: _pickedFile != null ? Colors.black87 : Colors.grey),
+                              color: _pickedFile != null
+                                  ? Colors.black87 : Colors.grey),
                           overflow: TextOverflow.ellipsis,
                         )),
                         const Icon(Icons.upload_rounded, color: deepBlue, size: 20),
@@ -371,38 +320,44 @@ class _AdminHomestayManagementScreenState
                       borderRadius: BorderRadius.circular(12),
                       child: Image.memory(_previewBytes!,
                           height: 110, width: double.infinity,
-                          fit: BoxFit.cover, cacheHeight: 220),
+                          fit: BoxFit.cover),
                     ),
                   ],
 
-                  // Upload progress bar
-                  if (_uploadProgress != null) ...[
+                  // Progress bar
+                  if (_saving && _pickedFile != null) ...[
                     const SizedBox(height: 10),
                     Row(children: [
                       Expanded(
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
-                            value: _uploadProgress,
+                            value: _uploadProgress > 0 ? _uploadProgress : null,
                             minHeight: 6,
                             backgroundColor: Colors.grey.shade200,
                             valueColor: const AlwaysStoppedAnimation(deepBlue),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${((_uploadProgress ?? 0) * 100).toInt()}%',
-                        style: const TextStyle(fontSize: 12, color: deepBlue,
-                            fontWeight: FontWeight.w600),
-                      ),
+                      if (_uploadProgress > 0) ...[
+                        const SizedBox(width: 8),
+                        Text('${(_uploadProgress * 100).toInt()}%',
+                            style: const TextStyle(fontSize: 11,
+                                color: deepBlue, fontWeight: FontWeight.w600)),
+                      ],
                     ]),
                     const SizedBox(height: 4),
-                    const Text('Uploading image to server…',
-                        style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(
+                      _isUploading
+                          ? (_uploadProgress > 0
+                              ? 'Uploading to Cloudinary…'
+                              : 'Connecting…')
+                          : 'Saving…',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                   ],
 
-                  // Error box
+                  // Error
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 10),
                     Container(
@@ -429,7 +384,6 @@ class _AdminHomestayManagementScreenState
 
                   const SizedBox(height: 18),
 
-                  // Save button
                   SizedBox(
                     width: double.infinity, height: 50,
                     child: ElevatedButton.icon(
@@ -446,8 +400,8 @@ class _AdminHomestayManagementScreenState
                           : const Icon(Icons.add_circle_outline, size: 20),
                       label: Text(
                         _saving
-                            ? (_uploadProgress != null
-                                ? 'Uploading… ${((_uploadProgress ?? 0) * 100).toInt()}%'
+                            ? (_isUploading
+                                ? 'Uploading… ${(_uploadProgress * 100).toInt()}%'
                                 : 'Saving…')
                             : 'Add Homestay',
                         style: const TextStyle(
@@ -458,7 +412,7 @@ class _AdminHomestayManagementScreenState
                 ]),
               ),
 
-              // ── List header ──────────────────────────────────────────
+              // ── List ──────────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
                 child: Row(children: [
@@ -470,30 +424,23 @@ class _AdminHomestayManagementScreenState
                 ]),
               ),
 
-              // ── Firestore list ───────────────────────────────────────
               StreamBuilder<QuerySnapshot>(
                 stream: _col.orderBy('createdAt', descending: false).snapshots(),
                 builder: (context, snap) {
                   if (snap.connectionState == ConnectionState.waiting) {
-                    return const Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
+                    return const Padding(padding: EdgeInsets.all(20),
+                        child: Center(child: CircularProgressIndicator()));
                   }
                   if (snap.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Center(child: Text('Error: ${snap.error}',
-                          style: const TextStyle(color: Colors.red))),
-                    );
+                    return Padding(padding: const EdgeInsets.all(20),
+                        child: Center(child: Text('Error: ${snap.error}',
+                            style: const TextStyle(color: Colors.red))));
                   }
                   final docs = snap.data?.docs ?? [];
                   if (docs.isEmpty) {
-                    return Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Center(child: Text('No homestays added yet',
-                          style: TextStyle(color: Colors.grey.shade500))),
-                    );
+                    return Padding(padding: const EdgeInsets.all(20),
+                        child: Center(child: Text('No homestays added yet',
+                            style: TextStyle(color: Colors.grey.shade500))));
                   }
                   return ListView.builder(
                     shrinkWrap: true,
@@ -502,7 +449,7 @@ class _AdminHomestayManagementScreenState
                     itemCount: docs.length,
                     itemBuilder: (_, i) {
                       final data = docs[i].data() as Map<String, dynamic>;
-                      final imageUrl = data['imageUrl'] ?? '';
+                      final imageUrl = (data['imageUrl'] ?? '').toString().trim();
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         decoration: BoxDecoration(
@@ -512,8 +459,7 @@ class _AdminHomestayManagementScreenState
                               left: BorderSide(color: deepBlue, width: 4)),
                           boxShadow: [BoxShadow(
                               color: deepBlue.withValues(alpha: 0.06),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2))],
+                              blurRadius: 10, offset: const Offset(0, 2))],
                         ),
                         child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(
@@ -523,7 +469,9 @@ class _AdminHomestayManagementScreenState
                             child: imageUrl.isNotEmpty
                                 ? Image.network(imageUrl,
                                     width: 42, height: 42,
-                                    fit: BoxFit.cover, cacheWidth: 84,
+                                    fit: BoxFit.cover,
+                                    loadingBuilder: (_, child, p) =>
+                                        p == null ? child : _placeholder(),
                                     errorBuilder: (_, __, ___) => _placeholder())
                                 : _placeholder(),
                           ),

@@ -36,15 +36,26 @@ class _AwarenessScreenState extends State<AwarenessScreen> {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snap.hasError) {
+            return Center(child: Text('Error: ${snap.error}',
+                style: const TextStyle(color: Colors.red)));
+          }
           final docs = snap.data?.docs ?? [];
           final allItems = docs.map((d) => d.data() as Map<String, dynamic>).toList();
 
-          // Build category list
-          final categories = ['All', ...allItems.map((e) => e['category'] as String? ?? '').toSet().toList()..sort()];
+          final categories = [
+            'All',
+            ...allItems
+                .map((e) => e['category'] as String? ?? '')
+                .where((c) => c.isNotEmpty)
+                .toSet()
+                .toList()
+              ..sort()
+          ];
 
-          // Apply filters
           final filtered = allItems.where((e) {
-            final matchCat = _selectedCategory == 'All' || e['category'] == _selectedCategory;
+            final matchCat = _selectedCategory == 'All' ||
+                e['category'] == _selectedCategory;
             final matchSearch = _searchQuery.isEmpty ||
                 (e['title'] ?? '').toString().toLowerCase().contains(_searchQuery);
             return matchCat && matchSearch;
@@ -123,11 +134,11 @@ class _AwarenessScreenState extends State<AwarenessScreen> {
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, i) {
                         final item = filtered[i];
-                        final imageUrl = item['imageUrl'] ?? '';
+                        final imageUrl = (item['imageUrl'] ?? '').toString().trim();
                         return GestureDetector(
-                          onTap: () => Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => AwarenessDetailScreen(data: item),
-                          )),
+                          onTap: () => Navigator.push(context,
+                              MaterialPageRoute(
+                                  builder: (_) => AwarenessDetailScreen(data: item))),
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.white,
@@ -137,40 +148,56 @@ class _AwarenessScreenState extends State<AwarenessScreen> {
                                   blurRadius: 8, offset: const Offset(0, 2))],
                             ),
                             child: Row(children: [
-                              // Image
+                              // Image with loading + error states
                               ClipRRect(
-                                borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
-                                child: imageUrl.isNotEmpty
-                                    ? Image.network(imageUrl, width: 80, height: 80, fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => _imagePlaceholder())
-                                    : _imagePlaceholder(),
+                                borderRadius: const BorderRadius.horizontal(
+                                    left: Radius.circular(14)),
+                                child: _NetworkImage(
+                                  url: imageUrl,
+                                  width: 80,
+                                  height: 80,
+                                  placeholder: _imagePlaceholder(),
+                                ),
                               ),
                               // Content
                               Expanded(
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
-                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                          color: lightBlue, borderRadius: BorderRadius.circular(6)),
+                                          color: lightBlue,
+                                          borderRadius: BorderRadius.circular(6)),
                                       child: Text(item['category'] ?? '',
-                                          style: const TextStyle(color: deepBlue, fontSize: 10, fontWeight: FontWeight.w600)),
+                                          style: const TextStyle(
+                                              color: deepBlue,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600)),
                                     ),
                                     const SizedBox(height: 6),
                                     Text(item['title'] ?? '',
-                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF1A1A2E))),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 14,
+                                            color: Color(0xFF1A1A2E))),
                                     const SizedBox(height: 4),
                                     Text(item['description'] ?? '',
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade500)),
                                   ]),
                                 ),
                               ),
                               const Padding(
                                 padding: EdgeInsets.only(right: 12),
-                                child: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                                child: Icon(Icons.arrow_forward_ios,
+                                    size: 14, color: Colors.grey),
                               ),
                             ]),
                           ),
@@ -192,6 +219,48 @@ class _AwarenessScreenState extends State<AwarenessScreen> {
   }
 }
 
+// ── Reusable network image widget with loading + error state ─────────────────
+class _NetworkImage extends StatelessWidget {
+  final String url;
+  final double width;
+  final double height;
+  final Widget placeholder;
+
+  const _NetworkImage({
+    required this.url,
+    required this.width,
+    required this.height,
+    required this.placeholder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.isEmpty) return placeholder;
+    return Image.network(
+      url,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+      // Show spinner while loading
+      loadingBuilder: (_, child, progress) {
+        if (progress == null) return child;
+        return SizedBox(
+          width: width, height: height,
+          child: const Center(
+            child: SizedBox(
+              width: 20, height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2,
+                  color: Color(0xFF0D47A1)),
+            ),
+          ),
+        );
+      },
+      // Show placeholder on error (broken URL, expired token, etc.)
+      errorBuilder: (_, error, __) => placeholder,
+    );
+  }
+}
+
 // ── Detail Screen ─────────────────────────────────────────────────────────────
 class AwarenessDetailScreen extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -201,12 +270,13 @@ class AwarenessDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = data['imageUrl'] ?? '';
+    final imageUrl = (data['imageUrl'] ?? '').toString().trim();
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4FC),
       appBar: AppBar(
         title: Text(data['title'] ?? '',
-            style: const TextStyle(color: deepBlue, fontWeight: FontWeight.w700)),
+            style: const TextStyle(
+                color: deepBlue, fontWeight: FontWeight.w700)),
         backgroundColor: Colors.white,
         foregroundColor: deepBlue,
         elevation: 0,
@@ -217,23 +287,40 @@ class AwarenessDetailScreen extends StatelessWidget {
           if (imageUrl.isNotEmpty)
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: Image.network(imageUrl, width: double.infinity,
-                  height: 200, fit: BoxFit.cover),
+              child: _NetworkImage(
+                url: imageUrl,
+                width: double.infinity,
+                height: 200,
+                placeholder: Container(
+                  width: double.infinity, height: 200,
+                  color: const Color(0xFFE3F2FD),
+                  child: const Icon(Icons.article_rounded,
+                      color: deepBlue, size: 48),
+                ),
+              ),
             ),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-                color: const Color(0xFFE3F2FD), borderRadius: BorderRadius.circular(8)),
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(8)),
             child: Text(data['category'] ?? '',
-                style: const TextStyle(color: deepBlue, fontSize: 12, fontWeight: FontWeight.w600)),
+                style: const TextStyle(
+                    color: deepBlue,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
           ),
           const SizedBox(height: 12),
           Text(data['title'] ?? '',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E))),
+              style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF1A1A2E))),
           const SizedBox(height: 12),
           Text(data['description'] ?? '',
-              style: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFF444444))),
+              style: const TextStyle(
+                  fontSize: 15, height: 1.6, color: Color(0xFF444444))),
         ]),
       ),
     );
