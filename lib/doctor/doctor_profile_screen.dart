@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/app_user_session.dart';
 import '../services/doctor_service.dart';
 import '../login.dart';
+import 'availability_screen.dart';
+import 'notes_history_screen.dart';
 
 // ── DoctorProfileScreen ───────────────────────────────────────────────────────
 
@@ -188,6 +190,55 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
 
             const SizedBox(height: 16),
 
+            // ── Quick Links ────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Color(0x08000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 2)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Quick Access',
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: _blue)),
+                  const SizedBox(height: 12),
+                  _profileLink(
+                    icon: Icons.schedule_rounded,
+                    label: 'My Availability',
+                    subtitle: 'Set your working hours & slots',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const DoctorAvailabilityScreen()),
+                    ),
+                  ),
+                  const Divider(height: 16),
+                  _profileLink(
+                    icon: Icons.notes_rounded,
+                    label: 'Notes History',
+                    subtitle: 'Browse all consultation notes',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const NotesHistoryScreen()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             // ── Editable fields ────────────────────────────────────────
             Container(
               padding: const EdgeInsets.all(16),
@@ -251,6 +302,50 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _profileLink({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: _lightBlue,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 20, color: _blue),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1A1A2E))),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: TextStyle(
+                        fontSize: 11.5, color: Colors.grey.shade500)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded,
+              size: 20, color: Colors.grey.shade400),
+        ]),
       ),
     );
   }

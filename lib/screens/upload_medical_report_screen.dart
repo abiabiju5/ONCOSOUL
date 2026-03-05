@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import '../services/cloudinary_service.dart';
+import '../services/supabase_storage_service.dart';
 import '../services/doctor_service.dart';
 import '../models/app_user_session.dart';
 
@@ -79,9 +79,9 @@ class _UploadMedicalReportScreenState
     _isUploading    = false;
   });
 
-  // ── Upload to Cloudinary ──────────────────────────────────────────────────
+  // ── Upload to Supabase Storage ──────────────────────────────────────────────────
 
-  Future<String?> _uploadToCloudinary(String patientId) async {
+  Future<String?> _uploadFile(String patientId) async {
     if (_pickedFile == null) return null;
 
     final bytes = _pickedFile!.bytes;
@@ -92,7 +92,7 @@ class _UploadMedicalReportScreenState
     if (mounted) setState(() { _isUploading = true; _uploadProgress = 0.0; });
 
     try {
-      final url = await CloudinaryService.uploadBytes(
+      final url = await SupabaseStorageService.uploadBytes(
         bytes:    bytes,
         folder:   'medical_reports/$patientId',
         fileName: '${DateTime.now().millisecondsSinceEpoch}_${_pickedFile!.name}',
@@ -122,7 +122,7 @@ class _UploadMedicalReportScreenState
 
       String? fileUrl;
       if (_pickedFile != null) {
-        fileUrl = await _uploadToCloudinary(patientId);
+        fileUrl = await _uploadFile(patientId);
       }
 
       await _service.uploadMedicalReport(
@@ -443,7 +443,7 @@ class _UploadMedicalReportScreenState
                       _isUploading
                           ? (_uploadProgress > 0
                               ? 'Uploading… ${(_uploadProgress * 100).toStringAsFixed(0)}%'
-                              : 'Connecting to Cloudinary…')
+                              : 'Uploading…')
                           : 'Saving report to database…',
                       style: const TextStyle(fontSize: 12,
                           color: _deepBlue, fontWeight: FontWeight.w500),

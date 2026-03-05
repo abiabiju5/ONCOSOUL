@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../services/patient_service.dart';
+import '../services/supabase_storage_service.dart';
+import '../services/url_launcher_service.dart';
 
 class ViewReportsScreen extends StatelessWidget {
   const ViewReportsScreen({super.key});
@@ -100,6 +101,16 @@ class _ReportCard extends StatelessWidget {
     }
   }
 
+  /// Cloudinary stores files differently depending on the upload endpoint used.
+  /// PDFs uploaded via /image/upload/ cannot be served as documents — they
+  /// must be accessed via /raw/upload/. This method fixes any such URL.
+  /// Firebase Storage and other URLs are returned unchanged.
+  /// Routes PDF files through Google Docs Viewer so they render in-browser
+  /// without requiring Content-Disposition: inline (which Cloudinary's unsigned
+  /// preset blocks). Non-PDF files are returned as cleaned direct URLs.
+  static String _fixCloudinaryUrl(String url) =>
+      SupabaseStorageService.prepareViewUrl(url);
+
   @override
   Widget build(BuildContext context) {
     final color = _typeColor(report.reportType);
@@ -173,18 +184,26 @@ class _ReportCard extends StatelessWidget {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () async {
-                      final uri = Uri.tryParse(report.fileUrl!);
-                      if (uri != null && await canLaunchUrl(uri)) {
-                        await launchUrl(uri, mode: LaunchMode.externalApplication);
-                      } else {
+                      final viewUrl = _fixCloudinaryUrl(report.fileUrl!);
+                      try {
+                        await openFileUrl(
+                          context,
+                          viewUrl,
+                          title: report.reportType,
+                        );
+                      } catch (_) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Could not open file.')));
+                            const SnackBar(
+                              content: Text('Could not open file.'),
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
                         }
                       }
                     },
-                    icon: const Icon(Icons.visibility_outlined, size: 16),
-                    label: const Text('View File'),
+                    icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                    label: const Text('View Report'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: deepBlue,
                       side: const BorderSide(color: deepBlue),
