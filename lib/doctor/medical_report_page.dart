@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/doctor_service.dart';
-import '../services/cloudinary_service.dart';
+import '../services/supabase_storage_service.dart';
 import '../services/url_launcher_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -317,10 +317,10 @@ class _PatientReportsPage extends StatelessWidget {
   static const Color _lightBlue = Color(0xFFE3F2FD);
   static const Color _surface   = Color(0xFFF0F4FF);
 
-  /// Routes PDF files through Google Docs Viewer so they render in-browser
-  /// without requiring Content-Disposition: inline (blocked by unsigned preset).
+  /// Returns the URL ready for viewing.
+  /// Uses SupabaseStorageService since reports are stored in Supabase Storage.
   static String _fixCloudinaryUrl(String url) =>
-      CloudinaryService.prepareViewUrl(url);
+      SupabaseStorageService.prepareViewUrl(url);
 
   Color _typeColor(String type) {
     switch (type.toLowerCase()) {

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/app_user_session.dart';
 import '../services/doctor_service.dart';
-import '../services/notification_service.dart';
 import '../login.dart';
 import 'appointments_screen.dart';
 import 'consultations_page.dart';

@@ -97,7 +97,7 @@ class NotificationService extends ChangeNotifier {
       _doctorSub = stream.listen((snap) {
         _doctorNotifications = snap.docs
             .map((d) => AppNotification.fromMap(
-                d.id, d.data() as Map<String, dynamic>))
+                d.id, d.data()))
             .toList();
         notifyListeners();
       }, onError: (_) {});
@@ -105,7 +105,7 @@ class NotificationService extends ChangeNotifier {
       _patientSub = stream.listen((snap) {
         _patientNotifications = snap.docs
             .map((d) => AppNotification.fromMap(
-                d.id, d.data() as Map<String, dynamic>))
+                d.id, d.data()))
             .toList();
         notifyListeners();
       }, onError: (_) {});

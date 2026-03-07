@@ -224,7 +224,6 @@ class _AdminCommunityModerationScreenState
                 : 'Unknown time';
             final likesCount = data['likes'] ?? 0;
             final likedBy = List<String>.from(data['likedBy'] ?? []);
-            final commentsCount = likedBy.length;
 
             return Container(
               decoration: BoxDecoration(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/patient_service.dart';
 import '../models/appointment_rules.dart';
+import 'my_appointments_screen.dart';
 
 class BookAppointmentScreen extends StatefulWidget {
   const BookAppointmentScreen({super.key});
@@ -146,7 +147,11 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(16),
         ));
-        Navigator.pop(context);
+        // Navigate to My Appointments screen so the patient can see the booked appointment
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MyAppointmentsScreen()),
+        );
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Booking failed: $e'), backgroundColor: Colors.red));

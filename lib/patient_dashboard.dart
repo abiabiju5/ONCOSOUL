@@ -189,29 +189,72 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 width: double.infinity,
                 height: bannerHeight,
                 margin: const EdgeInsets.symmetric(horizontal: 24),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(32),
+                  color: const Color(0xFFF0F6FF),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF1E5AA8).withValues(alpha: 0.13),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(32),
                   child: Stack(children: [
-                    Positioned.fill(child: Image.asset('assets/images/dashboard_bg.jpg', fit: BoxFit.cover)),
-                    Positioned.fill(child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [const Color(0xFFE8F1FB).withValues(alpha: 0.78),
-                              const Color(0xFFF0F6FF).withValues(alpha: 0.45), Colors.transparent],
-                          begin: Alignment.centerLeft, end: Alignment.centerRight,
-                          stops: const [0.0, 0.45, 1.0],
+                    // Background image — doctor + patient illustration, anchored to right
+                    Positioned.fill(
+                      child: Image.asset(
+                        'assets/images/dashboard_bg.jpg',
+                        fit: BoxFit.cover,
+                        alignment: Alignment.centerRight,
+                      ),
+                    ),
+                    // Gradient overlay on the left so text is always readable over the white bg
+                    Positioned.fill(
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Color(0xFFEAF2FB),   // solid light-blue left
+                              Color(0xCCEAF2FB),   // semi-transparent centre
+                              Colors.transparent,  // fully transparent right (shows image)
+                            ],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            stops: [0.0, 0.42, 0.70],
+                          ),
                         ),
                       ),
-                    )),
+                    ),
+                    // Text content on the left
                     Padding(
-                      padding: const EdgeInsets.all(28),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Text('Hello, ${widget.userName}',
-                            style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.bold, color: const Color(0xFF0B2E6B))),
-                        const SizedBox(height: 10),
-                        Text("We're here to support your care journey",
-                            style: TextStyle(fontSize: subtitleSize, color: const Color(0xFF2A4A7A))),
-                      ]),
+                      padding: const EdgeInsets.fromLTRB(28, 0, 0, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Hello, ${widget.userName}',
+                            style: TextStyle(
+                              fontSize: titleSize,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF0B2E6B),
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            "We're here to support\nyour care journey",
+                            style: TextStyle(
+                              fontSize: subtitleSize,
+                              color: const Color(0xFF2A4A7A),
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ]),
                 ),
@@ -270,28 +313,43 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   Widget _card(BuildContext context, IconData icon, String title, Widget screen, Color iconColor, Color circleColor) {
     return InkWell(
-      borderRadius: BorderRadius.circular(32),
+      borderRadius: BorderRadius.circular(24),
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => screen)),
       child: Container(
-        height: 130,
-        padding: const EdgeInsets.symmetric(horizontal: 22),
+        height: 140,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.80),
-          borderRadius: BorderRadius.circular(32),
+          color: Colors.white.withValues(alpha: 0.90),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(color: Colors.white.withValues(alpha: 0.9), width: 1.5),
           boxShadow: [
-            BoxShadow(color: iconColor.withValues(alpha: 0.10), blurRadius: 16, offset: const Offset(0, 6)),
+            BoxShadow(color: iconColor.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 6)),
             BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
           ],
         ),
-        child: Row(children: [
-          Container(padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(color: circleColor, shape: BoxShape.circle),
-              child: Icon(icon, size: 24, color: iconColor)),
-          const SizedBox(width: 18),
-          Expanded(child: Text(title,
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: Colors.grey.shade800))),
-        ]),
+              child: Icon(icon, size: 26, color: iconColor),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: Colors.grey.shade800,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

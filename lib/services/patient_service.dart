@@ -182,6 +182,7 @@ class PatientService {
           final list = s.docs
               .map((d) => PatientAppointment.fromMap(d.id, d.data()))
               .toList();
+          // Sort by date descending in Dart — avoids needing a Firestore composite index
           list.sort((a, b) => b.date.compareTo(a.date));
           return list;
         });
@@ -192,14 +193,14 @@ class PatientService {
     final start = DateTime(date.year, date.month, date.day);
     final end = start.add(const Duration(days: 1));
     final snap = await _appointments
-        .where('doctorId', isEqualTo: doctorId)
-        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('date', isLessThan: Timestamp.fromDate(end))
-        .get();
+      .where('doctorId', isEqualTo: doctorId)
+      .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+      .where('date', isLessThan: Timestamp.fromDate(end))
+      .get();
     return snap.docs
-        .where((d) => (d.data()['status'] as String?) != 'Cancelled')
-        .map((d) => d.data()['slot'] as String? ?? '')
-        .toList();
+      .where((d) => d.data()['status'] != 'Cancelled')
+      .map((d) => d.data()['slot'] as String? ?? '')
+      .toList();
   }
 
   Future<void> bookAppointment({
@@ -214,7 +215,7 @@ class PatientService {
       throw Exception('This slot is already booked. Please choose another.');
     }
 
-    final apptRef = await _appointments.add({
+    await _appointments.add({
       'patientId': _patientId,
       'patientName': _patientName,
       'doctorId': doctorId,
@@ -272,8 +273,10 @@ class PatientService {
   // ── REPORTS ───────────────────────────────────────────────────────────────
 
   Stream<List<PatientReport>> myReportsStream() {
+    // Use the patientId exactly as stored — do NOT force uppercase.
+    // Firebase Auth UIDs are case-sensitive lowercase strings.
     return _reports
-        .where('patientId', isEqualTo: _patientId.toUpperCase())
+        .where('patientId', isEqualTo: _patientId)
         .snapshots()
         .map((s) {
           final list = s.docs
