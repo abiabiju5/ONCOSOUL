@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'login.dart';
 import 'models/app_user_session.dart';
+import 'services/notification_service.dart';
+import 'widgets/notification_panel.dart';
 
 // ── Admin (Hospital Administration) screens ───────────────────────────────────
 import 'screens/admin_manage_appointments_screen.dart';
@@ -13,6 +15,7 @@ import 'screens/admin_user_list_screen.dart';
 import 'screens/upload_medical_report_screen.dart';
 import 'screens/upload_consultation_summary_screen.dart';
 import 'screens/medical_staff_appointments_screen.dart';
+import 'screens/medical_staff_view_appointments_screen.dart';
 import 'screens/admin_doctor_management_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -30,7 +33,48 @@ class _AdminDashboardState extends State<AdminDashboard> {
   static const Color _deepBlue = Color(0xFF0D47A1);
   static const Color _accentBlue = Color(0xFF1976D2);
 
+  final _notifService = NotificationService.instance;
+
   bool get _isAdmin => widget.role == 'admin';
+
+  @override
+  void initState() {
+    super.initState();
+    _notifService.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    _notifService.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() { if (mounted) setState(() {}); }
+
+  void _showNotificationPanel(BuildContext context) {
+    _notifService.markAllStaffRead();
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      barrierDismissible: true,
+      builder: (ctx) => Stack(children: [
+        Positioned(
+          top: MediaQuery.of(ctx).padding.top + 64,
+          right: 16,
+          child: Material(
+            color: Colors.transparent,
+            child: ListenableBuilder(
+              listenable: _notifService,
+              builder: (_, __) => NotificationPanel(
+                notifications: _notifService.staffNotifications,
+                onMarkAllRead: _notifService.markAllStaffRead,
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
 
   // ─── Logout confirmation ──────────────────────────────────────────────────
   void _confirmLogout() {
@@ -253,14 +297,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
               const SizedBox(height: 12),
               _MenuCard(
                 icon: Icons.event_note_rounded,
-                title: 'Appointments',
-                subtitle: 'View confirmed patient appointments',
+                title: 'My Appointments',
+                subtitle: 'Appointments assigned to you',
                 accentColor: const Color(0xFF2E7D32),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
                       builder: (_) =>
                           const MedicalStaffAppointmentsScreen()),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _MenuCard(
+                icon: Icons.calendar_view_month_rounded,
+                title: 'All Appointments',
+                subtitle: 'View all hospital appointments',
+                accentColor: const Color(0xFF0277BD),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          const MedicalStaffViewAppointmentsScreen()),
                 ),
               ),
             ],
@@ -316,6 +373,33 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ],
       ),
       actions: [
+        // Notification bell
+        Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: GestureDetector(
+            onTap: () => _showNotificationPanel(context),
+            child: Stack(clipBehavior: Clip.none, children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.notifications_none_rounded,
+                    size: 20, color: _deepBlue),
+              ),
+              if (_notifService.staffUnreadCount > 0)
+                Positioned(right: -2, top: -2, child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                  child: Text(
+                    _notifService.staffUnreadCount > 9 ? '9+' : _notifService.staffUnreadCount.toString(),
+                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                  ),
+                )),
+            ]),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.only(right: 10),
           child: GestureDetector(
@@ -392,14 +476,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     style:
                         TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 2),
-                //Text(
-                  //isAdmin ? 'Admin' : ' Staff ',
-                  //style: const TextStyle(
-                      //color: Colors.white,
-                      //fontSize: 22,
-                      //fontWeight: FontWeight.w800,
-                      //letterSpacing: -0.5),
-                //),
+                Text(
+                  AppUserSession.userName.isNotEmpty
+                      ? AppUserSession.userName
+                      : (isAdmin ? 'Admin' : 'Staff'),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5),
+                ),
               ],
             ),
           ),

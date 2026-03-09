@@ -279,11 +279,11 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(children: [
                   Row(children: [
-                    Expanded(child: _card(context, Icons.video_call_rounded, 'Online Consultation',
-                        const OnlineConsultationScreen(), const Color(0xFF1A56A0), const Color(0xFFD0E4F7))),
-                    const SizedBox(width: 20),
                     Expanded(child: _card(context, Icons.insert_drive_file_rounded, 'View Reports',
                         const ViewReportsScreen(), const Color(0xFF1E7A4A), const Color(0xFFD0EFE0))),
+                    const SizedBox(width: 20),
+                    Expanded(child: _card(context, Icons.video_call_rounded, 'Online Consultation',
+                        const OnlineConsultationScreen(), const Color(0xFF1A56A0), const Color(0xFFD0E4F7))),
                   ]),
                   const SizedBox(height: 22),
                   Row(children: [

@@ -4,6 +4,8 @@ import 'admin_awareness_management_screen.dart';
 import 'admin_homestay_management_screen.dart';
 import '../models/app_user_session.dart' hide AppUser;
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
+import '../widgets/notification_panel.dart';
 
 class SuperAdminDashboard extends StatefulWidget {
   const SuperAdminDashboard({super.key});
@@ -14,6 +16,46 @@ class SuperAdminDashboard extends StatefulWidget {
 
 class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
   final _authService = AuthService();
+  final _notifService = NotificationService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _notifService.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    _notifService.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() { if (mounted) setState(() {}); }
+
+  void _showNotificationPanel(BuildContext context) {
+    _notifService.markAllStaffRead();
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      barrierDismissible: true,
+      builder: (ctx) => Stack(children: [
+        Positioned(
+          top: MediaQuery.of(ctx).padding.top + 64,
+          right: 16,
+          child: Material(
+            color: Colors.transparent,
+            child: ListenableBuilder(
+              listenable: _notifService,
+              builder: (_, __) => NotificationPanel(
+                notifications: _notifService.staffNotifications,
+                onMarkAllRead: _notifService.markAllStaffRead,
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
 
   // ─── Logout confirmation dialog ───────────────────────────────────────────
   void _confirmLogout(BuildContext context) {
@@ -88,6 +130,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                       ),
                       onPressed: () {
                         Navigator.of(ctx).pop();
+                        NotificationService.instance.reset();
                         AppUserSession.clear();
                         Navigator.pushAndRemoveUntil(
                           context,
@@ -205,6 +248,33 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
         ],
       ),
       actions: [
+        // Notification bell
+        Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: GestureDetector(
+            onTap: () => _showNotificationPanel(context),
+            child: Stack(clipBehavior: Clip.none, children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.notifications_none_rounded,
+                    size: 20, color: Color(0xFF0D47A1)),
+              ),
+              if (_notifService.staffUnreadCount > 0)
+                Positioned(right: -2, top: -2, child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                  child: Text(
+                    _notifService.staffUnreadCount > 9 ? '9+' : _notifService.staffUnreadCount.toString(),
+                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                  ),
+                )),
+            ]),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.only(right: 10),
           child: GestureDetector(
@@ -275,9 +345,11 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                 const Text('Welcome back 👋',
                     style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 2),
-                const Text(
-                  'Admin Dashboard',
-                  style: TextStyle(
+                Text(
+                  AppUserSession.userName.isNotEmpty
+                      ? AppUserSession.userName
+                      : 'Super Admin',
+                  style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
                       fontWeight: FontWeight.w800,

@@ -67,9 +67,11 @@ class NotificationService extends ChangeNotifier {
 
   List<AppNotification> _doctorNotifications = [];
   List<AppNotification> _patientNotifications = [];
+  List<AppNotification> _staffNotifications = [];
 
   StreamSubscription<QuerySnapshot>? _doctorSub;
   StreamSubscription<QuerySnapshot>? _patientSub;
+  StreamSubscription<QuerySnapshot>? _staffSub;
 
   // ── Initialise / teardown ─────────────────────────────────────────────────
 
@@ -81,11 +83,6 @@ class NotificationService extends ChangeNotifier {
     if (uid.isEmpty) return;
 
     final role = AppUserSession.userRole;
-    final isDoctor = role == 'Doctor' ||
-        role == 'Admin' ||
-        role == 'Super Admin' ||
-        role == 'Medical Staff';
-
     final stream = _db
         .collection('notifications')
         .where('recipientId', isEqualTo: uid)
@@ -93,19 +90,24 @@ class NotificationService extends ChangeNotifier {
         .limit(50)
         .snapshots();
 
-    if (isDoctor) {
+    if (role == 'Doctor') {
       _doctorSub = stream.listen((snap) {
         _doctorNotifications = snap.docs
-            .map((d) => AppNotification.fromMap(
-                d.id, d.data()))
+            .map((d) => AppNotification.fromMap(d.id, d.data()))
+            .toList();
+        notifyListeners();
+      }, onError: (_) {});
+    } else if (role == 'Medical Staff' || role == 'Admin' || role == 'Super Admin') {
+      _staffSub = stream.listen((snap) {
+        _staffNotifications = snap.docs
+            .map((d) => AppNotification.fromMap(d.id, d.data()))
             .toList();
         notifyListeners();
       }, onError: (_) {});
     } else {
       _patientSub = stream.listen((snap) {
         _patientNotifications = snap.docs
-            .map((d) => AppNotification.fromMap(
-                d.id, d.data()))
+            .map((d) => AppNotification.fromMap(d.id, d.data()))
             .toList();
         notifyListeners();
       }, onError: (_) {});
@@ -117,14 +119,17 @@ class NotificationService extends ChangeNotifier {
     _cancelSubscriptions();
     _doctorNotifications = [];
     _patientNotifications = [];
+    _staffNotifications = [];
     notifyListeners();
   }
 
   void _cancelSubscriptions() {
     _doctorSub?.cancel();
     _patientSub?.cancel();
+    _staffSub?.cancel();
     _doctorSub = null;
     _patientSub = null;
+    _staffSub = null;
   }
 
   // ── Public getters ────────────────────────────────────────────────────────
@@ -140,6 +145,12 @@ class NotificationService extends ChangeNotifier {
 
   int get patientUnreadCount =>
       _patientNotifications.where((n) => !n.isRead).length;
+
+  List<AppNotification> get staffNotifications =>
+      List.unmodifiable(_staffNotifications);
+
+  int get staffUnreadCount =>
+      _staffNotifications.where((n) => !n.isRead).length;
 
   // ── Internal write helper ─────────────────────────────────────────────────
 
@@ -240,6 +251,8 @@ class NotificationService extends ChangeNotifier {
   Future<void> markAllDoctorRead() => _markAllRead(_doctorNotifications);
 
   Future<void> markAllPatientRead() => _markAllRead(_patientNotifications);
+
+  Future<void> markAllStaffRead() => _markAllRead(_staffNotifications);
 
   Future<void> _markAllRead(List<AppNotification> list) async {
     final unread = list.where((n) => !n.isRead).toList();

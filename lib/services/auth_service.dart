@@ -30,6 +30,9 @@ class AppUser {
   final String password; // stored as plain text (hash in production)
   final bool isActive;
   final DateTime createdAt;
+  final String? email;
+  final String? specialty;
+  final String? phone;
 
   AppUser({
     required this.userId,
@@ -38,6 +41,9 @@ class AppUser {
     required this.password,
     this.isActive = true,
     DateTime? createdAt,
+    this.email,
+    this.specialty,
+    this.phone,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Convert Firestore document to AppUser
@@ -49,6 +55,9 @@ class AppUser {
       password: map['password'] ?? '',
       isActive: map['isActive'] ?? true,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      email: map['email'],
+      specialty: map['specialty'],
+      phone: map['phone'],
     );
   }
 
@@ -61,6 +70,9 @@ class AppUser {
       'password': password,
       'isActive': isActive,
       'createdAt': Timestamp.fromDate(createdAt),
+      if (email != null && email!.isNotEmpty) 'email': email,
+      if (specialty != null && specialty!.isNotEmpty) 'specialty': specialty,
+      if (phone != null && phone!.isNotEmpty) 'phone': phone,
     };
   }
 
@@ -71,6 +83,9 @@ class AppUser {
     String? password,
     bool? isActive,
     DateTime? createdAt,
+    String? email,
+    String? specialty,
+    String? phone,
   }) {
     return AppUser(
       userId: userId ?? this.userId,
@@ -78,6 +93,9 @@ class AppUser {
       role: role ?? this.role,
       password: password ?? this.password,
       isActive: isActive ?? this.isActive,
+      email: email ?? this.email,
+      specialty: specialty ?? this.specialty,
+      phone: phone ?? this.phone,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -168,6 +186,9 @@ class AuthService {
     required String name,
     required String role,
     required String registrationId,
+    String? email,
+    String? specialty,
+    String? phone,
   }) async {
     final prefix = RolePrefix.getPrefix(role);
     final userId = '$prefix$registrationId'.toUpperCase();
@@ -185,6 +206,9 @@ class AuthService {
       name: name.trim(),
       role: role,
       password: password,
+      email: email,
+      specialty: specialty,
+      phone: phone,
     );
 
     await _usersRef.doc(userId).set(user.toMap());

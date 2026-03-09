@@ -17,13 +17,10 @@ class _MedicalStaffViewAppointmentsScreenState
   final _statuses = ['All', 'Pending', 'Completed', 'Cancelled'];
 
   Stream<QuerySnapshot> get _stream {
-    Query q = FirebaseFirestore.instance
+    return FirebaseFirestore.instance
         .collection('appointments')
-        .orderBy('date', descending: false);
-    if (_selectedStatus != 'All') {
-      q = q.where('status', isEqualTo: _selectedStatus);
-    }
-    return q.snapshots();
+        .orderBy('date', descending: false)
+        .snapshots();
   }
 
   String _formatDate(dynamic ts) {

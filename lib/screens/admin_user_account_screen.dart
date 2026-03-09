@@ -21,11 +21,13 @@ class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
   static const String _emailjsPublicKey  = 'Qua-QCadcOD8GPY3b';
   // ─────────────────────────────────────────────────────────────────────────
 
-  final _authService = AuthService();
-  final _formKey     = GlobalKey<FormState>();
-  final _nameCtrl    = TextEditingController();
-  final _regIdCtrl   = TextEditingController();
-  final _emailCtrl   = TextEditingController();
+  final _authService  = AuthService();
+  final _formKey      = GlobalKey<FormState>();
+  final _nameCtrl     = TextEditingController();
+  final _regIdCtrl    = TextEditingController();
+  final _emailCtrl    = TextEditingController();
+  final _phoneCtrl    = TextEditingController();
+  final _specialtyCtrl = TextEditingController();
 
   String _selectedRole = UserRole.patient;
   bool   _loading      = false;
@@ -48,6 +50,8 @@ class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
     _nameCtrl.dispose();
     _regIdCtrl.dispose();
     _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _specialtyCtrl.dispose();
     super.dispose();
   }
 
@@ -104,6 +108,9 @@ class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
         name:           _nameCtrl.text.trim(),
         role:           _selectedRole,
         registrationId: _regIdCtrl.text.trim(),
+        email:          _emailCtrl.text.trim(),
+        specialty:      _selectedRole == UserRole.doctor ? _specialtyCtrl.text.trim() : null,
+        phone:          _phoneCtrl.text.trim().isNotEmpty ? _phoneCtrl.text.trim() : null,
       );
 
       // 2. Send credentials email
@@ -128,6 +135,8 @@ class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
       _nameCtrl.clear();
       _regIdCtrl.clear();
       _emailCtrl.clear();
+      _phoneCtrl.clear();
+      _specialtyCtrl.clear();
       _formKey.currentState!.reset();
       setState(() => _selectedRole = UserRole.patient);
 
@@ -297,8 +306,32 @@ class _AdminUserAccountScreenState extends State<AdminUserAccountScreen> {
                     ),
                     const SizedBox(height: 16),
 
+                    _label('Phone Number (Optional)'),
+                    _textField(
+                      controller: _phoneCtrl,
+                      hint: 'e.g. +91 98765 43210',
+                      icon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 16),
+
                     _label('Role'),
                     _roleDropdown(),
+
+                    // Specialty field — only for Doctors
+                    if (_selectedRole == UserRole.doctor) ...[
+                      const SizedBox(height: 16),
+                      _label('Specialty'),
+                      _textField(
+                        controller: _specialtyCtrl,
+                        hint: 'e.g. Oncologist, Surgeon',
+                        icon: Icons.medical_services_outlined,
+                        textCapitalization: TextCapitalization.words,
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Specialty is required for doctors'
+                            : null,
+                      ),
+                    ],
                   ],
                 ),
               ),

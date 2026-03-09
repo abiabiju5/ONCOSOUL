@@ -17,6 +17,8 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
   final _service = PatientService();
   final _phoneCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  bool _editing = false;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -30,6 +32,29 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveProfile() async {
+    setState(() => _saving = true);
+    try {
+      await _service.updateProfile(
+        phone: _phoneCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+      );
+      if (mounted) {
+        setState(() { _editing = false; _saving = false; });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated successfully'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update: \$e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   void _confirmLogout() {
@@ -126,10 +151,51 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
                   const Text('Contact Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: blue)),
                   const SizedBox(height: 12),
                   _editField(ctrl: _phoneCtrl, label: 'Phone Number', icon: Icons.phone_outlined,
-                      hint: 'e.g. +91 98765 43210', enabled: false, keyboardType: TextInputType.phone),
+                      hint: 'e.g. +91 98765 43210', enabled: _editing, keyboardType: TextInputType.phone),
                   const SizedBox(height: 12),
                   _editField(ctrl: _addressCtrl, label: 'Address', icon: Icons.location_on_outlined,
-                      hint: 'Your address', enabled: false, maxLines: 2),
+                      hint: 'Your address', enabled: _editing, maxLines: 2),
+                  const SizedBox(height: 16),
+                  if (!_editing)
+                    SizedBox(width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => setState(() => _editing = true),
+                        icon: const Icon(Icons.edit_rounded, size: 16),
+                        label: const Text('Edit Profile'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: blue,
+                          side: const BorderSide(color: blue),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    )
+                  else
+                    Row(children: [
+                      Expanded(child: OutlinedButton(
+                        onPressed: _saving ? null : () => setState(() => _editing = false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey,
+                          side: BorderSide(color: Colors.grey.shade300),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: const Text('Cancel'),
+                      )),
+                      const SizedBox(width: 12),
+                      Expanded(child: ElevatedButton(
+                        onPressed: _saving ? null : _saveProfile,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue, foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          elevation: 0,
+                        ),
+                        child: _saving
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.w600)),
+                      )),
+                    ]),
                 ])),
             ]),
           );
