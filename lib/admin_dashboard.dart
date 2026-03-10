@@ -14,7 +14,6 @@ import 'screens/admin_user_list_screen.dart';
 // ── Medical Staff screens ─────────────────────────────────────────────────────
 import 'screens/upload_medical_report_screen.dart';
 import 'screens/upload_consultation_summary_screen.dart';
-import 'screens/medical_staff_appointments_screen.dart';
 import 'screens/medical_staff_view_appointments_screen.dart';
 import 'screens/admin_doctor_management_screen.dart';
 
@@ -292,19 +291,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   MaterialPageRoute(
                       builder: (_) =>
                           const UploadConsultationSummaryScreen()),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _MenuCard(
-                icon: Icons.event_note_rounded,
-                title: 'My Appointments',
-                subtitle: 'Appointments assigned to you',
-                accentColor: const Color(0xFF2E7D32),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) =>
-                          const MedicalStaffAppointmentsScreen()),
                 ),
               ),
               const SizedBox(height: 12),

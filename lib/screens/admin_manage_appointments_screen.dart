@@ -21,6 +21,9 @@ class _AdminManageAppointmentsScreenState
   final _slotDurationCtrl = TextEditingController();
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 17, minute: 0);
+  bool _hasBreak = false;
+  TimeOfDay _breakStart = const TimeOfDay(hour: 13, minute: 0);
+  TimeOfDay _breakEnd = const TimeOfDay(hour: 14, minute: 0);
   bool _savingRules = false;
 
   @override
@@ -53,6 +56,9 @@ class _AdminManageAppointmentsScreenState
         final end = data['endTime'] ?? '17:00';
         _startTime = _parseTime(start);
         _endTime = _parseTime(end);
+        _hasBreak = data['hasBreak'] as bool? ?? false;
+        _breakStart = _parseTime(data['breakStart'] ?? '13:00');
+        _breakEnd = _parseTime(data['breakEnd'] ?? '14:00');
       });
     }
   }
@@ -66,17 +72,32 @@ class _AdminManageAppointmentsScreenState
   String _formatTimeOfDay(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
-  Future<void> _pickTime(bool isStart) async {
+  Future<void> _pickTime(String which) async {
+    TimeOfDay initial;
+    switch (which) {
+      case 'start':      initial = _startTime;  break;
+      case 'end':        initial = _endTime;    break;
+      case 'breakStart': initial = _breakStart; break;
+      case 'breakEnd':   initial = _breakEnd;   break;
+      default:           initial = _startTime;
+    }
     final picked = await showTimePicker(
       context: context,
-      initialTime: isStart ? _startTime : _endTime,
+      initialTime: initial,
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: _deepBlue),
+        ),
+        child: child!,
+      ),
     );
     if (picked != null) {
       setState(() {
-        if (isStart) {
-          _startTime = picked;
-        } else {
-          _endTime = picked;
+        switch (which) {
+          case 'start':      _startTime  = picked; break;
+          case 'end':        _endTime    = picked; break;
+          case 'breakStart': _breakStart = picked; break;
+          case 'breakEnd':   _breakEnd   = picked; break;
         }
       });
     }
@@ -89,6 +110,15 @@ class _AdminManageAppointmentsScreenState
       _showError('Please enter valid numbers.');
       return;
     }
+    // Validate break window if enabled
+    if (_hasBreak) {
+      final breakStartMins = _breakStart.hour * 60 + _breakStart.minute;
+      final breakEndMins   = _breakEnd.hour   * 60 + _breakEnd.minute;
+      if (breakEndMins <= breakStartMins) {
+        _showError('Break end time must be after break start time.');
+        return;
+      }
+    }
     setState(() => _savingRules = true);
     try {
       await FirebaseFirestore.instance
@@ -99,6 +129,9 @@ class _AdminManageAppointmentsScreenState
         'slotDurationMinutes': duration,
         'startTime': _formatTimeOfDay(_startTime),
         'endTime': _formatTimeOfDay(_endTime),
+        'hasBreak': _hasBreak,
+        'breakStart': _formatTimeOfDay(_breakStart),
+        'breakEnd': _formatTimeOfDay(_breakEnd),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       if (!mounted) return;
@@ -208,7 +241,7 @@ class _AdminManageAppointmentsScreenState
                   child: _timeTile(
                     label: 'Start',
                     time: _startTime,
-                    onTap: () => _pickTime(true),
+                    onTap: () => _pickTime('start'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -216,11 +249,87 @@ class _AdminManageAppointmentsScreenState
                   child: _timeTile(
                     label: 'End',
                     time: _endTime,
-                    onTap: () => _pickTime(false),
+                    onTap: () => _pickTime('end'),
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 20),
+            const Divider(height: 1, color: Color(0xFFEEF0F6)),
+            const SizedBox(height: 20),
+
+            // ── Break Time ──────────────────────────────────────────────
+            Row(children: [
+              const Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text('Break Time',
+                      style: TextStyle(fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0D1B3E))),
+                  SizedBox(height: 2),
+                  Text('Block a period when no appointments can be booked',
+                      style: TextStyle(fontSize: 11, color: Colors.black45)),
+                ]),
+              ),
+              Switch(
+                value: _hasBreak,
+                activeColor: _deepBlue,
+                onChanged: (v) => setState(() => _hasBreak = v),
+              ),
+            ]),
+            if (_hasBreak) ...[
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(
+                  child: _timeTile(
+                    label: 'Break Start',
+                    time: _breakStart,
+                    onTap: () => _pickTime('breakStart'),
+                    color: Colors.orange.shade50,
+                    borderColor: Colors.orange.shade200,
+                    iconColor: Colors.orange.shade700,
+                    textColor: Colors.orange.shade800,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _timeTile(
+                    label: 'Break End',
+                    time: _breakEnd,
+                    onTap: () => _pickTime('breakEnd'),
+                    color: Colors.orange.shade50,
+                    borderColor: Colors.orange.shade200,
+                    iconColor: Colors.orange.shade700,
+                    textColor: Colors.orange.shade800,
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(children: [
+                  Icon(Icons.coffee_rounded,
+                      color: Colors.orange.shade700, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Break: ${_breakStart.format(context)} – ${_breakEnd.format(context)}  •  No bookings allowed during this time',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
           ]),
           const SizedBox(height: 24),
           SizedBox(
@@ -423,34 +532,41 @@ class _AdminManageAppointmentsScreenState
     );
   }
 
-  Widget _timeTile(
-      {required String label,
-      required TimeOfDay time,
-      required VoidCallback onTap}) {
+  Widget _timeTile({
+    required String label,
+    required TimeOfDay time,
+    required VoidCallback onTap,
+    Color? color,
+    Color? borderColor,
+    Color? iconColor,
+    Color? textColor,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F7FF),
+          color: color ?? const Color(0xFFF5F7FF),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFDDE3F0)),
+          border: Border.all(color: borderColor ?? const Color(0xFFDDE3F0)),
         ),
         child: Row(
           children: [
-            const Icon(Icons.access_time_outlined,
-                size: 18, color: _deepBlue),
+            Icon(Icons.access_time_outlined,
+                size: 18, color: iconColor ?? _deepBlue),
             const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
-                        fontSize: 10, color: Colors.black45)),
+                    style: TextStyle(
+                        fontSize: 10, color: (textColor ?? Colors.black45).withValues(alpha: 0.6))),
                 Text(time.format(context),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 14)),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: textColor ?? Colors.black87)),
               ],
             ),
           ],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/consultation_room_service.dart';
 import '../models/app_user_session.dart';
 import 'my_appointments_screen.dart';
@@ -219,6 +220,51 @@ class _ActiveCallBanner extends StatelessWidget {
   final ConsultationRoom room;
   const _ActiveCallBanner({required this.room});
 
+  /// Requests camera + microphone permissions, then launches the Jitsi URL.
+  /// Shows a SnackBar if permissions are denied, or opens app settings if
+  /// they have been permanently denied.
+  Future<void> _joinCall(BuildContext context) async {
+    final cameraStatus = await Permission.camera.request();
+    final micStatus = await Permission.microphone.request();
+
+    // One or both permissions denied this time — inform the user.
+    if (cameraStatus.isDenied || micStatus.isDenied) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Camera and microphone access are required for video consultations.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Permanently denied — send the user to the OS app settings page.
+    if (cameraStatus.isPermanentlyDenied || micStatus.isPermanentlyDenied) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please enable camera and microphone in app settings to join the call.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      await openAppSettings();
+      return;
+    }
+
+    // Permissions granted — launch the Jitsi room in the external browser.
+    final uri = Uri.parse(room.joinUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -242,12 +288,7 @@ class _ActiveCallBanner extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () async {
-            final uri = Uri.parse(room.joinUrl);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            }
-          },
+          onTap: () => _joinCall(context),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             child: Row(

@@ -139,11 +139,23 @@ class DoctorInfo {
   final String id;
   final String name;
   final String specialty;
+  final bool hasBreak;
+  final String breakStart;
+  final String breakEnd;
+  final String startTime;
+  final String endTime;
+  final int slotDurationMinutes;
 
   const DoctorInfo({
     required this.id,
     required this.name,
     required this.specialty,
+    this.hasBreak = false,
+    this.breakStart = '01:00 PM',
+    this.breakEnd = '02:00 PM',
+    this.startTime = '09:00 AM',
+    this.endTime = '05:00 PM',
+    this.slotDurationMinutes = 30,
   });
 }
 
@@ -198,54 +210,98 @@ class PatientService {
       .where('date', isLessThan: Timestamp.fromDate(end))
       .get();
     return snap.docs
-      .where((d) => d.data()['status'] != 'Cancelled')
+      .where((d) {
+        final s = (d.data()['status'] as String? ?? '').toLowerCase();
+        final ghost = d.data()['isGhost'] as bool? ?? false;
+        return s != 'cancelled' && s != 'rescheduled' && !ghost;
+      })
       .map((d) => d.data()['slot'] as String? ?? '')
+      .where((s) => s.isNotEmpty)
       .toList();
   }
 
+
+  /// Real-time stream of booked (non-cancelled) slots for a doctor on a given date.
+  /// Emits a new list whenever any appointment changes so the slot grid is always live.
+  Stream<List<String>> bookedSlotsStream(String doctorId, DateTime date) {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = start.add(const Duration(days: 1));
+    return _appointments
+        .where('doctorId', isEqualTo: doctorId)
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('date', isLessThan: Timestamp.fromDate(end))
+        .snapshots()
+        .map((snap) => snap.docs
+            .where((d) {
+              final s = (d.data()['status'] as String? ?? '').toLowerCase();
+              final ghost = d.data()['isGhost'] as bool? ?? false;
+              return s != 'cancelled' && s != 'rescheduled' && !ghost;
+            })
+            .map((d) => d.data()['slot'] as String? ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList());
+  }
   Future<void> bookAppointment({
     required String doctorId,
     required String doctorName,
     required DateTime date,
     required String slot,
   }) async {
-    // Check slot availability
-    final booked = await bookedSlotsForDoctorOnDate(doctorId, date);
-    if (booked.contains(slot)) {
-      throw Exception('This slot is already booked. Please choose another.');
-    }
+    final start = DateTime(date.year, date.month, date.day);
+    final end   = start.add(const Duration(days: 1));
 
-    await _appointments.add({
-      'patientId': _patientId,
-      'patientName': _patientName,
-      'doctorId': doctorId,
-      'doctorName': doctorName,
-      'date': Timestamp.fromDate(date),
-      'slot': slot,
-      'status': 'Pending',
-      'bookedAt': FieldValue.serverTimestamp(),
+    // Use a transaction so two patients can never book the same slot simultaneously.
+    await _db.runTransaction((txn) async {
+      // Re-read all appointments for this doctor on this date inside the transaction.
+      final snap = await _appointments
+          .where('doctorId', isEqualTo: doctorId)
+          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('date', isLessThan: Timestamp.fromDate(end))
+          .get();
+
+      final alreadyBooked = snap.docs
+          .where((d) {
+            final status = (d.data()['status'] as String? ?? '').toLowerCase();
+            final ghost = d.data()['isGhost'] as bool? ?? false;
+            return status != 'cancelled' && status != 'rescheduled' && !ghost;
+          })
+          .map((d) => d.data()['slot'] as String? ?? '')
+          .toList();
+
+      if (alreadyBooked.contains(slot)) {
+        throw Exception('This slot was just booked by someone else. Please choose another.');
+      }
+
+      // Slot is free — write the new appointment inside the same transaction.
+      final newRef = _appointments.doc();
+      txn.set(newRef, {
+        'patientId':   _patientId,
+        'patientName': _patientName,
+        'doctorId':    doctorId,
+        'doctorName':  doctorName,
+        'date':        Timestamp.fromDate(date),
+        'slot':        slot,
+        'status':      'Pending',
+        'bookedAt':    FieldValue.serverTimestamp(),
+      });
     });
 
-    // Notify doctor
+    // Notifications are outside the transaction (non-critical, best-effort).
     await _db.collection('notifications').add({
       'recipientId': doctorId,
-      'type': 'new_appointment',
-      'title': 'New Appointment Booked',
-      'message':
-          '$_patientName has booked an appointment on ${date.day}/${date.month}/${date.year} at $slot.',
-      'isRead': false,
-      'createdAt': FieldValue.serverTimestamp(),
+      'type':        'new_appointment',
+      'title':       'New Appointment Booked',
+      'message':     '$_patientName has booked an appointment on ${date.day}/${date.month}/${date.year} at $slot.',
+      'isRead':      false,
+      'createdAt':   FieldValue.serverTimestamp(),
     });
-
-    // Notify patient
     await _db.collection('notifications').add({
       'recipientId': _patientId,
-      'type': 'confirmation',
-      'title': 'Appointment Confirmed',
-      'message':
-          'Your appointment with Dr. $doctorName on ${date.day}/${date.month}/${date.year} at $slot is confirmed.',
-      'isRead': false,
-      'createdAt': FieldValue.serverTimestamp(),
+      'type':        'confirmation',
+      'title':       'Appointment Confirmed',
+      'message':     'Your appointment with Dr. $doctorName on ${date.day}/${date.month}/${date.year} at $slot is confirmed.',
+      'isRead':      false,
+      'createdAt':   FieldValue.serverTimestamp(),
     });
   }
 
@@ -260,14 +316,33 @@ class PatientService {
         .where('role', isEqualTo: 'Doctor')
         .where('isActive', isEqualTo: true)
         .get();
-    return snap.docs.map((d) {
+
+    final doctors = <DoctorInfo>[];
+    for (final d in snap.docs) {
       final data = d.data();
-      return DoctorInfo(
+      // Fetch this doctor's availability to get break time settings
+      Map<String, dynamic> avail = {};
+      try {
+        final availDoc = await _db
+            .collection('doctor_availability')
+            .doc(d.id)
+            .get();
+        if (availDoc.exists) avail = availDoc.data() ?? {};
+      } catch (_) {}
+
+      doctors.add(DoctorInfo(
         id: d.id,
         name: data['name'] ?? 'Unknown',
         specialty: data['specialty'] ?? 'Oncologist',
-      );
-    }).toList();
+        hasBreak: avail['hasBreak'] as bool? ?? false,
+        breakStart: avail['breakStart'] ?? '01:00 PM',
+        breakEnd: avail['breakEnd'] ?? '02:00 PM',
+        startTime: avail['startTime'] ?? '09:00 AM',
+        endTime: avail['endTime'] ?? '05:00 PM',
+        slotDurationMinutes: avail['slotDurationMinutes'] as int? ?? 30,
+      ));
+    }
+    return doctors;
   }
 
   // ── REPORTS ───────────────────────────────────────────────────────────────
@@ -354,4 +429,52 @@ class PatientService {
   }
 
   String get patientId => _patientId;
+
+  // ── ADMIN APPOINTMENT RULES ───────────────────────────────────────────────
+
+  Future<AdminAppointmentRules> fetchAdminRules() async {
+    try {
+      final doc = await _db
+          .collection('settings')
+          .doc('appointment_rules')
+          .get();
+      if (doc.exists) return AdminAppointmentRules.fromMap(doc.data()!);
+    } catch (_) {}
+    return const AdminAppointmentRules();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin appointment rules model (mirrors what admin saves)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AdminAppointmentRules {
+  final String startTime;          // '09:00' 24-h
+  final String endTime;            // '17:00' 24-h
+  final bool hasBreak;
+  final String breakStart;         // '13:00' 24-h
+  final String breakEnd;           // '14:00' 24-h
+  final int slotDurationMinutes;
+  final int maxPerDay;
+
+  const AdminAppointmentRules({
+    this.startTime = '09:00',
+    this.endTime = '17:00',
+    this.hasBreak = false,
+    this.breakStart = '13:00',
+    this.breakEnd = '14:00',
+    this.slotDurationMinutes = 30,
+    this.maxPerDay = 20,
+  });
+
+  factory AdminAppointmentRules.fromMap(Map<String, dynamic> m) =>
+      AdminAppointmentRules(
+        startTime: m['startTime'] ?? '09:00',
+        endTime: m['endTime'] ?? '17:00',
+        hasBreak: m['hasBreak'] as bool? ?? false,
+        breakStart: m['breakStart'] ?? '13:00',
+        breakEnd: m['breakEnd'] ?? '14:00',
+        slotDurationMinutes: m['slotDurationMinutes'] as int? ?? 30,
+        maxPerDay: m['maxPerDay'] as int? ?? 20,
+      );
 }

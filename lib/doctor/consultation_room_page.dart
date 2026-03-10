@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/doctor_service.dart';
-import '../services/prescription_pdf_service.dart';
+
 import '../services/consultation_room_service.dart';
 import '../models/app_user_session.dart';
+import '../screens/pdf_viewer_screen.dart';
 
 class ConsultationRoomPage extends StatefulWidget {
   final String appointmentId;
@@ -39,7 +40,6 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
   final List<Map<String, String>> _prescriptions = [];
 
   bool _isSavingNotes = false;
-  bool _isSavingPdf = false;
   bool _notesLoading = true;
 
   bool _videoExpanded = true;
@@ -137,40 +137,6 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
       _snack('Failed to save notes: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isSavingNotes = false);
-    }
-  }
-
-  /// Generate PDF then also persist the prescription to Firestore.
-  Future<void> _savePrescription() async {
-    if (_prescriptions.isEmpty) {
-      _snack('Add at least one medicine before printing.', isError: true);
-      return;
-    }
-    setState(() => _isSavingPdf = true);
-    try {
-      final doctorName = AppUserSession.currentUser?.name ?? 'Doctor';
-
-      // 1. Generate & print PDF
-      final file = await PrescriptionPdfService.generatePrescriptionPdf(
-        patientName: widget.patientName,
-        doctorName: 'Dr. $doctorName',
-        medicines: _prescriptions,
-      );
-      await PrescriptionPdfService.printPdf(file);
-
-      // 2. Persist to Firestore so the patient can see it later
-      await _service.savePrescription(
-        appointmentId: widget.appointmentId,
-        patientId: widget.patientId,
-        patientName: widget.patientName,
-        medicines: _prescriptions,
-      );
-
-      _snack('Prescription saved and PDF generated!');
-    } catch (e) {
-      _snack('Failed to generate prescription: $e', isError: true);
-    } finally {
-      if (mounted) setState(() => _isSavingPdf = false);
     }
   }
 
@@ -466,7 +432,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
 
             const SizedBox(height: 16),
 
-            // ── Previous Consultations (live Firestore stream) ─────────────
+            // ── Previous Consultations (summaries + doctor notes) ──────────
             _section(
               title: 'Previous Consultations',
               icon: Icons.history_rounded,
@@ -476,20 +442,31 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                   setState(() => _summariesExpanded = !_summariesExpanded),
               child: StreamBuilder<List<FirestoreSummary>>(
                 stream: _service.summariesForPatient(widget.patientId),
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final summaries = snap.data ?? [];
-                  if (summaries.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('No offline visit summaries found.',
-                          style: TextStyle(color: _textSecondary)),
-                    );
-                  }
-                  return Column(
-                      children: summaries.map(_summaryCard).toList());
+                builder: (context, summarySnap) {
+                  return StreamBuilder<List<ConsultationNote>>(
+                    stream: _service.notesForPatientStream(widget.patientId),
+                    builder: (context, notesSnap) {
+                      if (summarySnap.connectionState == ConnectionState.waiting ||
+                          notesSnap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final summaries = summarySnap.data ?? [];
+                      final notes     = notesSnap.data ?? [];
+                      if (summaries.isEmpty && notes.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text('No previous consultations found.',
+                              style: TextStyle(color: _textSecondary)),
+                        );
+                      }
+                      return Column(children: [
+                        // Doctor notes (from online consultations)
+                        if (notes.isNotEmpty) ...notes.map(_noteCard),
+                        // Offline visit summaries
+                        if (summaries.isNotEmpty) ...summaries.map(_summaryCard),
+                      ]);
+                    },
+                  );
                 },
               ),
             ),
@@ -601,36 +578,21 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                   _field(_instructionsCtrl, 'Instructions (optional)',
                       Icons.notes_rounded),
                   const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.add_rounded, size: 16),
-                        label: const Text('Add'),
-                        onPressed: _addMedicine,
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.add_rounded, size: 16),
+                      label: const Text('Add Medicine'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF7B1FA2),
+                        side: const BorderSide(color: Color(0xFF7B1FA2)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
                       ),
+                      onPressed: _addMedicine,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: _isSavingPdf
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    color: Colors.white, strokeWidth: 2))
-                            : const Icon(Icons.print_rounded, size: 16),
-                        label: Text(
-                            _isSavingPdf ? 'Saving…' : 'Save & Print PDF'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7B1FA2),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: _isSavingPdf ? null : _savePrescription,
-                      ),
-                    ),
-                  ]),
+                  ),
                 ],
               ),
             ),
@@ -724,40 +686,166 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
   }
 
   Widget _reportTile(FirestoreReport r) {
+    final hasFile = r.fileUrl != null && r.fileUrl!.isNotEmpty;
+
+    return GestureDetector(
+      onTap: hasFile
+          ? () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PdfViewerScreen(
+                    fileUrl: r.fileUrl!,
+                    title: r.reportType,
+                  ),
+                ),
+              )
+          : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0F4FF),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: hasFile
+                ? _deepBlue.withValues(alpha: 0.35)
+                : _deepBlue.withValues(alpha: 0.15),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              hasFile
+                  ? Icons.picture_as_pdf_rounded
+                  : Icons.insert_drive_file_rounded,
+              color: hasFile ? Colors.red.shade400 : _deepBlue,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(r.reportType,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${r.labName.isNotEmpty ? '${r.labName}  •  ' : ''}'
+                    '${r.uploadedAt.day}/${r.uploadedAt.month}/${r.uploadedAt.year}'
+                    '  •  ${r.uploadedBy}',
+                    style: const TextStyle(
+                        fontSize: 11, color: _textSecondary),
+                  ),
+                  if (r.notes.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(r.notes,
+                        style: const TextStyle(
+                            fontSize: 12, color: _textPrimary)),
+                  ],
+                ],
+              ),
+            ),
+            if (hasFile) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _deepBlue,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.visibility_rounded,
+                        color: Colors.white, size: 13),
+                    SizedBox(width: 4),
+                    Text('Open',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ] else ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'No file',
+                  style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _noteCard(ConsultationNote n) {
+    final updatedAt = n.updatedAt ?? n.createdAt;
+    final dateLabel = '${updatedAt.day}/${updatedAt.month}/${updatedAt.year}';
+    final timeLabel = TimeOfDay.fromDateTime(updatedAt).format(context);
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: const Color(0xFFF0F4FF),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _deepBlue.withValues(alpha: 0.15)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _deepBlue.withValues(alpha: 0.2)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.insert_drive_file_rounded,
-              color: _deepBlue, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _deepBlue.withValues(alpha: 0.08),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.edit_note_rounded, size: 16, color: _deepBlue),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(dateLabel,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700, color: _deepBlue)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _deepBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text('Doctor Notes',
+                    style: TextStyle(
+                        fontSize: 10, fontWeight: FontWeight.w600, color: _deepBlue)),
+              ),
+            ]),
+          ),
+          // Body
+          Padding(
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(r.reportType,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                  '${r.labName.isNotEmpty ? '${r.labName}  •  ' : ''}'
-                  '${r.uploadedAt.day}/${r.uploadedAt.month}/${r.uploadedAt.year}'
-                  '  •  ${r.uploadedBy}',
-                  style: const TextStyle(
-                      fontSize: 11, color: _textSecondary),
-                ),
-                if (r.notes.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(r.notes,
-                      style: const TextStyle(
-                          fontSize: 12, color: _textPrimary)),
-                ],
+                _sRow(Icons.medical_services_outlined, 'Doctor', 'Dr. ${n.doctorName}'),
+                const Divider(height: 16),
+                _sRow(Icons.notes_rounded, 'Consultation Notes', n.notes),
+                const SizedBox(height: 8),
+                Text('Saved on $dateLabel at $timeLabel',
+                    style: const TextStyle(fontSize: 11, color: _textSecondary)),
               ],
             ),
           ),

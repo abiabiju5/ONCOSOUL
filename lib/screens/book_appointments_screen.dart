@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/patient_service.dart';
-import '../models/appointment_rules.dart';
 import 'my_appointments_screen.dart';
 
 class BookAppointmentScreen extends StatefulWidget {
@@ -22,16 +22,33 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   DoctorInfo? selectedDoctor;
 
   bool _loadingDoctors = true;
+  bool _loadingRules = true;
   bool _loadingSlots = false;
   bool _booking = false;
 
   List<DoctorInfo> _doctors = [];
   List<String> _bookedSlots = [];
+  AdminAppointmentRules _adminRules = const AdminAppointmentRules();
+
+  // Live subscription — re-created whenever doctor or date changes
+  StreamSubscription<List<String>>? _slotsSub;
 
   @override
   void initState() {
     super.initState();
     _loadDoctors();
+    _loadAdminRules();
+  }
+
+  @override
+  void dispose() {
+    _slotsSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadAdminRules() async {
+    final rules = await _service.fetchAdminRules();
+    if (mounted) setState(() { _adminRules = rules; _loadingRules = false; });
   }
 
   Future<void> _loadDoctors() async {
@@ -45,35 +62,110 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     }
   }
 
-  Future<void> _loadBookedSlots() async {
+  /// Cancels any existing subscription and starts a fresh real-time stream
+  /// for the selected doctor + date. The slot grid updates automatically
+  /// whenever another patient books or cancels — no manual refresh needed.
+  void _subscribeToBookedSlots() {
+    _slotsSub?.cancel();
+    _bookedSlots = [];
+
     if (selectedDoctor == null) return;
+
     setState(() => _loadingSlots = true);
-    try {
-      final booked = await _service.bookedSlotsForDoctorOnDate(selectedDoctor!.id, selectedDate);
-      setState(() { _bookedSlots = booked; _loadingSlots = false; });
-    } catch (_) { setState(() => _loadingSlots = false); }
+
+    _slotsSub = _service
+        .bookedSlotsStream(selectedDoctor!.id, selectedDate)
+        .listen((slots) {
+      if (!mounted) return;
+      setState(() {
+        // If the patient already selected a slot that just got booked by
+        // someone else, clear the selection and notify them.
+        final wasJustBooked =
+            selectedSlot != null && slots.contains(selectedSlot);
+        _bookedSlots = slots;
+        _loadingSlots = false;
+        if (wasJustBooked) {
+          selectedSlot = null;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(children: [
+                Icon(Icons.info_outline_rounded, color: Colors.white, size: 16),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Your selected slot was just booked by someone else. Please choose another.',
+                  ),
+                ),
+              ]),
+              backgroundColor: Colors.orange.shade700,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      });
+    }, onError: (_) {
+      if (mounted) setState(() => _loadingSlots = false);
+    });
   }
 
-  /// Returns all slots as strings (unchanged).
+  /// Parses both 24-h ('13:00') and 12-h ('1:00 PM') time strings
+  /// into a DateTime on [selectedDate].
+  DateTime _parseTimeStr(String t) {
+    t = t.trim();
+    final hasPeriod = t.toUpperCase().contains('AM') || t.toUpperCase().contains('PM');
+    if (hasPeriod) {
+      // 12-h format: '9:00 AM' or '1:00 PM'
+      final parts = t.split(' ');
+      final hm = parts[0].split(':');
+      int hour = int.parse(hm[0]);
+      final minute = int.parse(hm[1]);
+      final isPm = parts[1].toUpperCase() == 'PM';
+      if (isPm && hour != 12) hour += 12;
+      if (!isPm && hour == 12) hour = 0;
+      return DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour, minute);
+    } else {
+      // 24-h format: '09:00' or '13:00'
+      final hm = t.split(':');
+      return DateTime(selectedDate.year, selectedDate.month, selectedDate.day,
+          int.parse(hm[0]), int.parse(hm[1]));
+    }
+  }
+
+  /// Returns all time slots, excluding any that fall within the break window.
+  /// Start time, end time, slot duration and break window all come from
+  /// the admin appointment rules — these are the single source of truth.
   List<String> _generateSlots() {
     final slots = <String>[];
-    DateTime current = DateTime(selectedDate.year, selectedDate.month, selectedDate.day,
-        AppointmentRules.startTime.hour, AppointmentRules.startTime.minute);
-    final end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day,
-        AppointmentRules.endTime.hour, AppointmentRules.endTime.minute);
-    final breakStart = DateTime(selectedDate.year, selectedDate.month, selectedDate.day,
-        AppointmentRules.breakStart.hour, AppointmentRules.breakStart.minute);
-    final breakEnd = DateTime(selectedDate.year, selectedDate.month, selectedDate.day,
-        AppointmentRules.breakEnd.hour, AppointmentRules.breakEnd.minute);
+
+    final DateTime start = _parseTimeStr(_adminRules.startTime);
+    final DateTime end   = _parseTimeStr(_adminRules.endTime);
+    final int duration   = _adminRules.slotDurationMinutes > 0
+        ? _adminRules.slotDurationMinutes
+        : 30;
+
+    DateTime? breakStart;
+    DateTime? breakEnd;
+    if (_adminRules.hasBreak) {
+      breakStart = _parseTimeStr(_adminRules.breakStart);
+      breakEnd   = _parseTimeStr(_adminRules.breakEnd);
+    }
+
+    DateTime current = start;
     while (current.isBefore(end)) {
-      if (!(current.isAfter(breakStart.subtract(const Duration(minutes: 1))) && current.isBefore(breakEnd))) {
+      bool inBreak = false;
+      if (breakStart != null && breakEnd != null) {
+        inBreak = !current.isBefore(breakStart) && current.isBefore(breakEnd);
+      }
+      if (!inBreak) {
         final tod = TimeOfDay.fromDateTime(current);
         final hour = tod.hourOfPeriod == 0 ? 12 : tod.hourOfPeriod;
         final minute = tod.minute.toString().padLeft(2, '0');
         final period = tod.period == DayPeriod.am ? 'AM' : 'PM';
         slots.add('$hour:$minute $period');
       }
-      current = current.add(Duration(minutes: AppointmentRules.slotDuration));
+      current = current.add(Duration(minutes: duration));
     }
     return slots;
   }
@@ -124,8 +216,8 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       ),
     );
     if (picked != null) {
-      setState(() { selectedDate = picked; selectedSlot = null; _bookedSlots = []; });
-      await _loadBookedSlots();
+      setState(() { selectedDate = picked; selectedSlot = null; });
+      _subscribeToBookedSlots();
     }
   }
 
@@ -140,14 +232,18 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         doctorId: selectedDoctor!.id, doctorName: selectedDoctor!.name,
         date: selectedDate, slot: selectedSlot!,
       );
+      // Cancel stream BEFORE navigating so the slot update from our own
+      // booking doesn't trigger the "booked by someone else" warning.
+      await _slotsSub?.cancel();
+      _slotsSub = null;
       if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Appointment booked with Dr. ${selectedDoctor!.name} at $selectedSlot!'),
           backgroundColor: deepBlue, behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(16),
         ));
-        // Navigate to My Appointments screen so the patient can see the booked appointment
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const MyAppointmentsScreen()),
@@ -162,7 +258,6 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final slots = _generateSlots();
     return Scaffold(
       backgroundColor: bgColor,
       appBar: _buildAppBar(context),
@@ -177,10 +272,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
             _sectionLabel('Available Slots'), const SizedBox(height: 10),
             if (selectedDoctor == null)
               _emptyState(icon: Icons.person_search_outlined, message: 'Please select a doctor first')
-            else if (_loadingSlots)
+            else if (_loadingSlots || _loadingRules)
               const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
             else
-              _buildGroupedSlots(slots),
+              _buildGroupedSlots(_generateSlots()),
             const SizedBox(height: 100),
           ],
         )),
@@ -217,36 +312,76 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     if (_doctors.isEmpty) return Container(padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
         child: const Text('No doctors available.', style: TextStyle(color: Colors.grey)));
+
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 8, offset: const Offset(0, 3))]),
-      child: DropdownButtonFormField<DoctorInfo>(
-        value: selectedDoctor,
-        icon: const Icon(Icons.keyboard_arrow_down_rounded, color: deepBlue),
-        decoration: InputDecoration(
-          hintText: 'Choose a doctor',
-          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-          prefixIcon: Container(margin: const EdgeInsets.only(right: 12),
-            decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200))),
-            child: const Icon(Icons.medical_services_outlined, color: deepBlue, size: 20)),
-          filled: true, fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.grey.shade200)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.grey.shade200)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: midBlue, width: 2)),
-        ),
-        items: _doctors.map((doc) => DropdownMenuItem(
-          value: doc,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text('Dr. ${doc.name}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0D1B3E))),
-            Text(doc.specialty, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-          ]),
-        )).toList(),
-        onChanged: (value) async {
-          setState(() { selectedDoctor = value; selectedSlot = null; _bookedSlots = []; });
-          await _loadBookedSlots();
-        },
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 8, offset: const Offset(0, 3))],
       ),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          margin: const EdgeInsets.only(right: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE3F2FD),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.medical_services_outlined, color: deepBlue, size: 20),
+        ),
+        Expanded(
+          child: DropdownButton<DoctorInfo>(
+            value: selectedDoctor,
+            isExpanded: true,
+            underline: const SizedBox(),
+            icon: Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey.shade400),
+            hint: Text('Choose a doctor',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+            selectedItemBuilder: (context) => _doctors.map((doc) => OverflowBox(
+              maxHeight: double.infinity,
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Dr. ${doc.name}',
+                        style: const TextStyle(fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0D1B3E))),
+                    Text(doc.specialty,
+                        style: TextStyle(fontSize: 12,
+                            color: Colors.grey.shade500)),
+                  ],
+                ),
+              ),
+            )).toList(),
+            items: _doctors.map((doc) => DropdownMenuItem(
+              value: doc,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Dr. ${doc.name}',
+                      style: const TextStyle(fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0D1B3E))),
+                  Text(doc.specialty,
+                      style: TextStyle(fontSize: 12,
+                          color: Colors.grey.shade500)),
+                ],
+              ),
+            )).toList(),
+            onChanged: (value) {
+              setState(() { selectedDoctor = value; selectedSlot = null; });
+              _subscribeToBookedSlots();
+            },
+          ),
+        ),
+      ]),
     );
   }
 

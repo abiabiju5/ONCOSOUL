@@ -47,6 +47,9 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
   int _slotDuration = 30;
   List<String> _blockedDates = [];
   List<String> _blockedSlots = [];
+  bool _hasBreak = false;
+  String _breakStart = '01:00 PM';
+  String _breakEnd = '02:00 PM';
 
   @override
   void initState() {
@@ -68,6 +71,9 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
         _slotDuration = avail.slotDurationMinutes;
         _blockedDates = List<String>.from(avail.blockedDates);
         _blockedSlots = List<String>.from(avail.blockedSlots);
+        _hasBreak = avail.hasBreak;
+        _breakStart = avail.breakStart;
+        _breakEnd = avail.breakEnd;
         _loading = false;
       });
     } catch (e) {
@@ -90,6 +96,9 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
         slotDurationMinutes: _slotDuration,
         blockedDates: _blockedDates,
         blockedSlots: _blockedSlots,
+        hasBreak: _hasBreak,
+        breakStart: _breakStart,
+        breakEnd: _breakEnd,
       );
       await _service.saveAvailability(avail);
       if (mounted) {
@@ -343,6 +352,53 @@ class _DoctorAvailabilityScreenState extends State<DoctorAvailabilityScreen> {
                           );
                         }).toList(),
                       ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // ── Break Time ────────────────────────────────────────
+                    _sectionHeader('Break Time'),
+                    const SizedBox(height: 4),
+                    Text('Appointments cannot be booked during this period.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                    const SizedBox(height: 10),
+                    _card(
+                      child: Column(children: [
+                        SwitchListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Enable Break Time',
+                              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                          subtitle: Text(
+                            _hasBreak
+                                ? 'Break: $_breakStart – $_breakEnd'
+                                : 'No break scheduled',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: _hasBreak
+                                    ? Colors.orange.shade700
+                                    : Colors.grey),
+                          ),
+                          value: _hasBreak,
+                          activeColor: _blue,
+                          onChanged: (v) => setState(() => _hasBreak = v),
+                        ),
+                        if (_hasBreak) ...[
+                          const Divider(height: 16),
+                          _timeDropdown(
+                            label: 'Break Start',
+                            value: _breakStart,
+                            onChanged: (v) =>
+                                setState(() => _breakStart = v ?? _breakStart),
+                          ),
+                          const Divider(height: 16),
+                          _timeDropdown(
+                            label: 'Break End',
+                            value: _breakEnd,
+                            onChanged: (v) =>
+                                setState(() => _breakEnd = v ?? _breakEnd),
+                          ),
+                        ],
+                      ]),
                     ),
                     const SizedBox(height: 20),
 

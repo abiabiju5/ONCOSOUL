@@ -201,6 +201,141 @@ class _AdminHomestayManagementScreenState
     }
   }
 
+  Future<void> _editHomestay(String docId, Map<String, dynamic> data) async {
+    final nameCtrl     = TextEditingController(text: data['name']     ?? '');
+    final locationCtrl = TextEditingController(text: data['location'] ?? '');
+    final contactCtrl  = TextEditingController(text: data['contact']  ?? '');
+    final latCtrl      = TextEditingController(text: (data['lat']     ?? '').toString());
+    final lngCtrl      = TextEditingController(text: (data['lng']     ?? '').toString());
+    final rateCtrl     = TextEditingController(text: (data['rate']    ?? '').toString());
+
+    String? editError;
+    bool editSaving = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+          contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          title: Row(children: [
+            Container(width: 4, height: 20,
+                decoration: BoxDecoration(color: deepBlue,
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(width: 10),
+            const Text('Edit Homestay',
+                style: TextStyle(color: deepBlue, fontSize: 16,
+                    fontWeight: FontWeight.w700)),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const SizedBox(height: 8),
+              _field(nameCtrl, 'Name *', Icons.home_rounded),
+              const SizedBox(height: 10),
+              _field(locationCtrl, 'Location / Hospital Nearby *',
+                  Icons.location_on_rounded),
+              const SizedBox(height: 10),
+              _field(contactCtrl, 'Contact Number *', Icons.phone_rounded,
+                  type: TextInputType.phone),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(child: _field(latCtrl, 'Latitude',
+                    Icons.gps_fixed_rounded,
+                    type: const TextInputType.numberWithOptions(decimal: true))),
+                const SizedBox(width: 10),
+                Expanded(child: _field(lngCtrl, 'Longitude',
+                    Icons.gps_not_fixed_rounded,
+                    type: const TextInputType.numberWithOptions(decimal: true))),
+              ]),
+              const SizedBox(height: 10),
+              _field(rateCtrl, 'Rate per Day (₹) *',
+                  Icons.currency_rupee_rounded, type: TextInputType.number),
+              if (editError != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFEBEE),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Text(editError!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+              ],
+              const SizedBox(height: 8),
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: editSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel',
+                  style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: deepBlue, foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+              ),
+              onPressed: editSaving ? null : () async {
+                if (nameCtrl.text.trim().isEmpty ||
+                    locationCtrl.text.trim().isEmpty ||
+                    contactCtrl.text.trim().isEmpty ||
+                    rateCtrl.text.trim().isEmpty) {
+                  setStateDialog(() => editError =
+                      'Please fill in Name, Location, Contact and Rate.');
+                  return;
+                }
+                setStateDialog(() { editSaving = true; editError = null; });
+                try {
+                  await _col.doc(docId).update({
+                    'name':     nameCtrl.text.trim(),
+                    'location': locationCtrl.text.trim(),
+                    'contact':  contactCtrl.text.trim(),
+                    'lat':      double.tryParse(latCtrl.text.trim()) ?? 0.0,
+                    'lng':      double.tryParse(lngCtrl.text.trim()) ?? 0.0,
+                    'rate':     double.tryParse(rateCtrl.text.trim()) ?? 0.0,
+                  });
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Homestay updated successfully ✓'),
+                      backgroundColor: Colors.green,
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  }
+                } catch (e) {
+                  setStateDialog(() {
+                    editSaving = false;
+                    editError = 'Update failed: $e';
+                  });
+                }
+              },
+              icon: editSaving
+                  ? const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.save_rounded, size: 18),
+              label: Text(editSaving ? 'Saving…' : 'Save Changes',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    for (final c in [nameCtrl, locationCtrl, contactCtrl, latCtrl, lngCtrl, rateCtrl]) {
+      c.dispose();
+    }
+  }
+
   Future<void> _delete(String docId) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -482,17 +617,32 @@ class _AdminHomestayManagementScreenState
                               '${data['location'] ?? ''} · ₹${data['rate'] ?? 0}/day',
                               style: TextStyle(
                                   fontSize: 12, color: Colors.grey.shade500)),
-                          trailing: IconButton(
-                            icon: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                  color: const Color(0xFFFFEBEE),
-                                  borderRadius: BorderRadius.circular(8)),
-                              child: const Icon(Icons.delete_outline_rounded,
-                                  color: Colors.red, size: 18),
+                          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                            IconButton(
+                              icon: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                    color: lightBlue,
+                                    borderRadius: BorderRadius.circular(8)),
+                                child: const Icon(Icons.edit_outlined,
+                                    color: deepBlue, size: 18),
+                              ),
+                              onPressed: () => _editHomestay(
+                                  docs[i].id,
+                                  docs[i].data() as Map<String, dynamic>),
                             ),
-                            onPressed: () => _delete(docs[i].id),
-                          ),
+                            IconButton(
+                              icon: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                    color: const Color(0xFFFFEBEE),
+                                    borderRadius: BorderRadius.circular(8)),
+                                child: const Icon(Icons.delete_outline_rounded,
+                                    color: Colors.red, size: 18),
+                              ),
+                              onPressed: () => _delete(docs[i].id),
+                            ),
+                          ]),
                         ),
                       );
                     },

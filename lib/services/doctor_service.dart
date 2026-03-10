@@ -395,6 +395,9 @@ class DoctorAvailability {
   final int slotDurationMinutes;
   final List<String> blockedDates;        // 'yyyy-MM-dd' strings
   final List<String> blockedSlots;        // 'yyyy-MM-dd|slot' strings
+  final bool hasBreak;                    // whether break time is enabled
+  final String breakStart;               // e.g. '01:00 PM'
+  final String breakEnd;                 // e.g. '02:00 PM'
 
   const DoctorAvailability({
     required this.doctorId,
@@ -404,6 +407,9 @@ class DoctorAvailability {
     this.slotDurationMinutes = 30,
     this.blockedDates = const [],
     this.blockedSlots = const [],
+    this.hasBreak = false,
+    this.breakStart = '01:00 PM',
+    this.breakEnd = '02:00 PM',
   });
 
   factory DoctorAvailability.fromMap(Map<String, dynamic> map) {
@@ -418,6 +424,9 @@ class DoctorAvailability {
       slotDurationMinutes: map['slotDurationMinutes'] as int? ?? 30,
       blockedDates: List<String>.from(map['blockedDates'] ?? []),
       blockedSlots: List<String>.from(map['blockedSlots'] ?? []),
+      hasBreak: map['hasBreak'] as bool? ?? false,
+      breakStart: map['breakStart'] ?? '01:00 PM',
+      breakEnd: map['breakEnd'] ?? '02:00 PM',
     );
   }
 
@@ -443,6 +452,9 @@ class DoctorAvailability {
         'slotDurationMinutes': slotDurationMinutes,
         'blockedDates': blockedDates,
         'blockedSlots': blockedSlots,
+        'hasBreak': hasBreak,
+        'breakStart': breakStart,
+        'breakEnd': breakEnd,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 }

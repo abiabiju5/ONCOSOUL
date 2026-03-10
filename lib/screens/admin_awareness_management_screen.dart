@@ -196,6 +196,120 @@ class _AdminAwarenessManagementScreenState
     }
   }
 
+  Future<void> _editContent(String docId, Map<String, dynamic> data) async {
+    final titleCtrl       = TextEditingController(text: data['title']       ?? '');
+    final descriptionCtrl = TextEditingController(text: data['description'] ?? '');
+    final categoryCtrl    = TextEditingController(text: data['category']    ?? '');
+
+    String? editError;
+    bool editSaving = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+          contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          title: Row(children: [
+            Container(width: 4, height: 20,
+                decoration: BoxDecoration(color: deepBlue,
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(width: 10),
+            const Text('Edit Awareness Content',
+                style: TextStyle(color: deepBlue, fontSize: 16,
+                    fontWeight: FontWeight.w700)),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const SizedBox(height: 8),
+              _field(titleCtrl, 'Title *', Icons.title_rounded),
+              const SizedBox(height: 10),
+              _field(categoryCtrl, 'Category *', Icons.category_rounded),
+              const SizedBox(height: 10),
+              _field(descriptionCtrl, 'Description *',
+                  Icons.description_rounded, maxLines: 3),
+              if (editError != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFEBEE),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Text(editError!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+              ],
+              const SizedBox(height: 8),
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: editSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel',
+                  style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: deepBlue, foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+              ),
+              onPressed: editSaving ? null : () async {
+                if (titleCtrl.text.trim().isEmpty ||
+                    categoryCtrl.text.trim().isEmpty ||
+                    descriptionCtrl.text.trim().isEmpty) {
+                  setStateDialog(() => editError =
+                      'Please fill in Title, Category and Description.');
+                  return;
+                }
+                setStateDialog(() { editSaving = true; editError = null; });
+                try {
+                  await _collection.doc(docId).update({
+                    'title':       titleCtrl.text.trim(),
+                    'description': descriptionCtrl.text.trim(),
+                    'category':    categoryCtrl.text.trim(),
+                  });
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Content updated successfully ✓'),
+                      backgroundColor: Colors.green,
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  }
+                } catch (e) {
+                  setStateDialog(() {
+                    editSaving = false;
+                    editError = 'Update failed: $e';
+                  });
+                }
+              },
+              icon: editSaving
+                  ? const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.save_rounded, size: 18),
+              label: Text(editSaving ? 'Saving…' : 'Save Changes',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    titleCtrl.dispose();
+    descriptionCtrl.dispose();
+    categoryCtrl.dispose();
+  }
+
   Future<void> _deleteContent(String docId) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -490,17 +604,32 @@ class _AdminAwarenessManagementScreenState
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500)),
                       ),
-                      trailing: IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFFFFEBEE),
-                              borderRadius: BorderRadius.circular(8)),
-                          child: const Icon(Icons.delete_outline_rounded,
-                              color: Colors.red, size: 18),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(
+                          icon: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                                color: lightBlue,
+                                borderRadius: BorderRadius.circular(8)),
+                            child: const Icon(Icons.edit_outlined,
+                                color: deepBlue, size: 18),
+                          ),
+                          onPressed: () => _editContent(
+                              docs[i].id,
+                              docs[i].data() as Map<String, dynamic>),
                         ),
-                        onPressed: () => _deleteContent(docs[i].id),
-                      ),
+                        IconButton(
+                          icon: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFFFFEBEE),
+                                borderRadius: BorderRadius.circular(8)),
+                            child: const Icon(Icons.delete_outline_rounded,
+                                color: Colors.red, size: 18),
+                          ),
+                          onPressed: () => _deleteContent(docs[i].id),
+                        ),
+                      ]),
                     ),
                   );
                 },
