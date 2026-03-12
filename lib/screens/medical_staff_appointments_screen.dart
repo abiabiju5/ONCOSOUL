@@ -293,6 +293,7 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   DateTime _selectedDate = DateTime.now();
   String? _selectedSlot;
   List<String> _availableSlots = [];
+  Set<String> _bookedSlots = {};
 
   // State flags
   bool _loadingInit  = true;
@@ -462,7 +463,8 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
     final all = _generateSlots(date);
     if (!mounted) return;
     setState(() {
-      _availableSlots = all.where((s) => !booked.contains(s)).toList();
+      _availableSlots = all;
+      _bookedSlots    = booked;
       _loadingSlots   = false;
     });
   }
@@ -781,18 +783,23 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                             Icon(Icons.event_busy_outlined,
                                 color: Colors.orange.shade700, size: 16),
                             const SizedBox(width: 8),
-                            Text('No available slots for this date',
+                            Text('No slots configured for this date',
                                 style: TextStyle(fontSize: 12,
                                     color: Colors.orange.shade800,
                                     fontWeight: FontWeight.w500)),
                           ]),
                         )
                       else
-                        Wrap(spacing: 8, runSpacing: 8,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(spacing: 8, runSpacing: 8,
                           children: _availableSlots.map((slot) {
-                            final isSel = _selectedSlot == slot;
+                            final isSel    = _selectedSlot == slot;
+                            final isBooked = _bookedSlots.contains(slot);
                             return GestureDetector(
-                              onTap: _saving ? null
+                              onTap: (_saving || isBooked)
+                                  ? null
                                   : () => setState(
                                       () => _selectedSlot = slot),
                               child: AnimatedContainer(
@@ -800,12 +807,16 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 7),
                                 decoration: BoxDecoration(
-                                  color: isSel ? _deepBlue : Colors.white,
+                                  color: isBooked
+                                      ? Colors.grey.shade100
+                                      : isSel ? _deepBlue : Colors.white,
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color: isSel
-                                        ? _deepBlue
-                                        : const Color(0xFFBBDEFB),
+                                    color: isBooked
+                                        ? Colors.grey.shade300
+                                        : isSel
+                                            ? _deepBlue
+                                            : const Color(0xFFBBDEFB),
                                     width: 1.5,
                                   ),
                                   boxShadow: isSel ? [BoxShadow(
@@ -815,7 +826,11 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                                 ),
                                 child: Row(mainAxisSize: MainAxisSize.min,
                                     children: [
-                                  if (isSel) ...[
+                                  if (isBooked) ...[ 
+                                    Icon(Icons.block_rounded,
+                                        size: 11, color: Colors.grey.shade400),
+                                    const SizedBox(width: 4),
+                                  ] else if (isSel) ...[
                                     const Icon(Icons.check_circle_rounded,
                                         size: 11, color: Colors.white),
                                     const SizedBox(width: 4),
@@ -823,13 +838,39 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
                                   Text(slot, style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
-                                      color: isSel
-                                          ? Colors.white
-                                          : const Color(0xFF0D1B3E))),
+                                      color: isBooked
+                                          ? Colors.grey.shade400
+                                          : isSel
+                                              ? Colors.white
+                                              : const Color(0xFF0D1B3E))),
                                 ]),
                               ),
                             );
                           }).toList(),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          // available swatch
+                          Container(width: 12, height: 12,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(color: const Color(0xFFBBDEFB), width: 1.5),
+                                borderRadius: BorderRadius.circular(3),
+                              )),
+                          const SizedBox(width: 4),
+                          Text('Available', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                          const SizedBox(width: 12),
+                          // booked swatch
+                          Container(width: 12, height: 12,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                border: Border.all(color: Colors.grey.shade300, width: 1.5),
+                                borderRadius: BorderRadius.circular(3),
+                              )),
+                          const SizedBox(width: 4),
+                          Text('Booked', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                        ]),
+                      ],
                         ),
                       const SizedBox(height: 24),
 
