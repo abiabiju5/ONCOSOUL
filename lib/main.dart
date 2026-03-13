@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
+import 'services/appointment_expiry_service.dart';
 import 'splash_screen.dart';
 
 void main() async {
@@ -33,6 +34,8 @@ class _OncoSoulAppState extends State<OncoSoulApp> {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     await AuthService().seedSuperAdmin();
+    // Start the background job that auto-cancels past-due appointments
+    AppointmentExpiryService.instance.start();
   }
 
   @override

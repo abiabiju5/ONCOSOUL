@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/patient_service.dart';
+import '../services/appointment_expiry_service.dart';
 import 'upload_consultation_summary_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,6 +20,13 @@ class _MedicalStaffAppointmentsScreenState
   static const Color _deepBlue = Color(0xFF0D47A1);
   String _selectedStatus = 'All';
   final _statuses = ['All', 'Pending', 'Completed', 'Cancelled'];
+
+  @override
+  void initState() {
+    super.initState();
+    // Run an immediate expiry sweep so the list is up-to-date on open
+    AppointmentExpiryService.instance.runCheckNow();
+  }
 
   Stream<QuerySnapshot> get _stream => FirebaseFirestore.instance
       .collection('appointments')
@@ -315,27 +323,26 @@ class _RescheduleDialogState extends State<_RescheduleDialog> {
   Future<void> _init() async {
     final db = FirebaseFirestore.instance;
 
-    // Fetch doctors + admin rules in parallel
+    // Fetch doctors + admin rules + ALL availability docs in parallel
+    // fetchDoctors() already filters isActive=true — deactivated doctors excluded
     final results = await Future.wait([
       PatientService().fetchDoctors(),
       _fetchAdminRules(),
+      db.collection('doctor_availability').get(), // single batch fetch
     ]);
-    final doctors = results[0] as List<DoctorInfo>;
-    final rules   = results[1] as Map<String, dynamic>;
+    final doctors   = results[0] as List<DoctorInfo>;
+    final rules     = results[1] as Map<String, dynamic>;
+    final availSnap = results[2] as QuerySnapshot;
 
-    // Fetch each doctor's availability doc in parallel
-    final availFutures = doctors.map((d) async {
-      try {
-        final snap = await db
-            .collection('doctor_availability').doc(d.id).get();
-        return MapEntry(d.id, snap.exists ? snap.data()! : <String, dynamic>{});
-      } catch (_) {
-        return MapEntry(d.id, <String, dynamic>{});
-      }
-    });
-    final availEntries = await Future.wait(availFutures);
-    final availability = Map<String, Map<String, dynamic>>.fromEntries(
-        availEntries);
+    // Build availability map from the single batch fetch (no N+1 reads)
+    final availability = <String, Map<String, dynamic>>{};
+    for (final doc in availSnap.docs) {
+      availability[doc.id] = doc.data() as Map<String, dynamic>;
+    }
+    // Ensure every doctor has an entry even if no availability doc exists
+    for (final d in doctors) {
+      availability.putIfAbsent(d.id, () => {});
+    }
 
     final initialDate = (widget.current['date'] as Timestamp?)?.toDate()
         ?? DateTime.now();

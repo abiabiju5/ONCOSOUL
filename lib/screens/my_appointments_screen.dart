@@ -71,64 +71,6 @@ class _AppointmentCard extends StatelessWidget {
 
   static const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  void _confirmCancel(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(padding: const EdgeInsets.all(14),
-              decoration: const BoxDecoration(color: Color(0xFFFFEBEE), shape: BoxShape.circle),
-              child: const Icon(Icons.event_busy_rounded, color: Colors.red, size: 26)),
-            const SizedBox(height: 16),
-            const Text('Cancel Appointment?',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0D1B3E))),
-            const SizedBox(height: 8),
-            Text('Are you sure you want to cancel your appointment with Dr. ${appt.doctorName}?',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade500, height: 1.5)),
-            const SizedBox(height: 22),
-            Row(children: [
-              Expanded(child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 12)),
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('Keep it', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-              )),
-              const SizedBox(width: 10),
-              Expanded(child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade600, foregroundColor: Colors.white, elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 12)),
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  try {
-                    await service.cancelAppointment(appt.id);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Appointment cancelled.'), backgroundColor: Colors.red));
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red));
-                    }
-                  }
-                },
-                child: const Text('Cancel it', style: TextStyle(fontWeight: FontWeight.w700)),
-              )),
-            ]),
-          ]),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final statusData = _getStatusData(appt.status);
@@ -197,20 +139,6 @@ class _AppointmentCard extends StatelessWidget {
                   ],
                 );
               },
-            ),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _confirmCancel(context),
-                icon: const Icon(Icons.event_busy_rounded, size: 15),
-                label: const Text('Cancel Appointment'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red.shade600,
-                  side: BorderSide(color: Colors.red.shade200),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                ),
-              ),
             ),
           ],
         ]),

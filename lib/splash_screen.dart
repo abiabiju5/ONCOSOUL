@@ -90,9 +90,9 @@ class _SplashScreenState extends State<SplashScreen>
       statusBarIconBrightness: Brightness.light,
     ));
 
-    // ── Entry stagger (2 s) ─────────────────────────────────────
+    // ── Entry stagger (1.2 s) ───────────────────────────────────
     _entryCtrl = AnimationController(vsync: this,
-        duration: const Duration(milliseconds: 2000));
+        duration: const Duration(milliseconds: 1200));
 
     _bgFade    = _iv(0.00, 0.40, Curves.easeOut);
     _iconFade  = _iv(0.10, 0.50, Curves.easeOut);
@@ -154,7 +154,7 @@ class _SplashScreenState extends State<SplashScreen>
     _floatCtrl.repeat(reverse: true);
 
     // Slide timer: OUT (drift up + fade) → swap → IN (rise + fade)
-    Timer.periodic(const Duration(milliseconds: 3400), (t) {
+    Timer.periodic(const Duration(milliseconds: 2400), (t) {
       if (!mounted) { t.cancel(); return; }
       _slideInCtrl.stop();
       setState(() => _animOut = true);
@@ -168,7 +168,7 @@ class _SplashScreenState extends State<SplashScreen>
       });
     });
 
-    Timer(const Duration(milliseconds: 13600), _navigateToLogin);
+    Timer(const Duration(milliseconds: 7500), _navigateToLogin);
   }
 
   Animation<double> _iv(double from, double to, Curve curve) =>

@@ -32,6 +32,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
 
   // Live subscription — re-created whenever doctor or date changes
   StreamSubscription<List<String>>? _slotsSub;
+  bool _isFirstEmission = true; // skip conflict warning on initial load
 
   @override
   void initState() {
@@ -68,6 +69,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   void _subscribeToBookedSlots() {
     _slotsSub?.cancel();
     _bookedSlots = [];
+    _isFirstEmission = true; // reset on every new subscription
 
     if (selectedDoctor == null) return;
 
@@ -78,32 +80,17 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         .listen((slots) {
       if (!mounted) return;
       setState(() {
-        // If the patient already selected a slot that just got booked by
-        // someone else, clear the selection and notify them.
-        final wasJustBooked =
-            selectedSlot != null && slots.contains(selectedSlot);
         _bookedSlots = slots;
         _loadingSlots = false;
-        if (wasJustBooked) {
+        // If the selected slot was just taken by someone else, silently
+        // clear it — the slot will visually grey out so the user sees it.
+        if (!_isFirstEmission &&
+            selectedSlot != null &&
+            slots.contains(selectedSlot) &&
+            !_isSlotPast(selectedSlot!)) {
           selectedSlot = null;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(children: [
-                Icon(Icons.info_outline_rounded, color: Colors.white, size: 16),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Your selected slot was just booked by someone else. Please choose another.',
-                  ),
-                ),
-              ]),
-              backgroundColor: Colors.orange.shade700,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              duration: const Duration(seconds: 4),
-            ),
-          );
         }
+        _isFirstEmission = false;
       });
     }, onError: (_) {
       if (mounted) setState(() => _loadingSlots = false);
