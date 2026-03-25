@@ -35,7 +35,8 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
     if (_selectedRole != 'all') {
       q = q.where('role', isEqualTo: _selectedRole);
     }
-    return q.orderBy('createdAt', descending: true);
+    // Sorting is done client-side to avoid requiring a Firestore composite index
+    return q;
   }
 
   Future<void> _toggleActive(String uid, bool currentStatus) async {
@@ -206,7 +207,19 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
                       child: CircularProgressIndicator());
                 }
 
-                final docs = snapshot.data!.docs.where((doc) {
+                final allDocs = snapshot.data!.docs.toList();
+                // Sort client-side by createdAt descending
+                allDocs.sort((a, b) {
+                  final aData = a.data() as Map<String, dynamic>;
+                  final bData = b.data() as Map<String, dynamic>;
+                  final aTime = aData['createdAt'];
+                  final bTime = bData['createdAt'];
+                  if (aTime == null && bTime == null) return 0;
+                  if (aTime == null) return 1;
+                  if (bTime == null) return -1;
+                  return bTime.compareTo(aTime);
+                });
+                final docs = allDocs.where((doc) {
                   if (_searchQuery.isEmpty) return true;
                   final data = doc.data() as Map<String, dynamic>;
                   final name =
