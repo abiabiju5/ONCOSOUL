@@ -4,19 +4,14 @@
 //
 //  Platform       │ Strategy
 //  ───────────────┼──────────────────────────────────────────────────────────
-//  Web            │ Full PDF.js viewer inside an <iframe> (page nav + zoom)
+//  Web            │ <embed> platform view — browser built-in PDF renderer,
+//                 │   no CORS issues, no blob-origin restriction
 //  Android / iOS  │ Opens URL in Chrome Custom Tab / SFSafariViewController
 //  Desktop        │ Opens URL in the default system browser
-//
-// pubspec.yaml dependencies required:
-//   url_launcher: ^6.2.0
-//   http:         ^1.2.0   ← already used elsewhere in the project
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-import '../services/firebase_storage_service.dart';
 
 // Conditional import ─────────────────────────────────────────────────────────
 // On web  → pdf_viewer_web.dart  (uses dart:html + dart:ui_web)
@@ -45,23 +40,22 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   bool    _loading = true;
   String? _error;
-  String? _viewId;          // web only: platform-view id for HtmlElementView
+  String? _viewId;
   late String _cleanUrl;
 
   @override
   void initState() {
     super.initState();
-    _cleanUrl = FirebaseStorageService.prepareViewUrl(widget.fileUrl);
+    _cleanUrl = widget.fileUrl.trim();
 
     if (kIsWeb) {
       _loadWeb();
     } else {
-      // Mobile / Desktop — open externally then pop back.
       WidgetsBinding.instance.addPostFrameCallback((_) => _openExternal());
     }
   }
 
-  // ── Web: download + build PDF.js iframe ─────────────────────────────────
+  // ── Web: register <embed> platform view ─────────────────────────────────
   Future<void> _loadWeb() async {
     setState(() { _loading = true; _error = null; });
     try {
@@ -160,7 +154,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   color: Color(0xFF1E88E5), strokeWidth: 3),
             ),
             SizedBox(height: 18),
-            Text('Downloading PDF…',
+            Text('Loading PDF…',
                 style: TextStyle(color: Colors.white70, fontSize: 14)),
           ],
         ),
@@ -175,7 +169,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lock_outline_rounded,
+              const Icon(Icons.picture_as_pdf_rounded,
                   color: Colors.redAccent, size: 52),
               const SizedBox(height: 16),
               const Text(
@@ -184,20 +178,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     color: Colors.white,
                     fontSize: 17,
                     fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(
-                      color: Colors.white60, fontSize: 12, height: 1.6),
-                  textAlign: TextAlign.center,
-                ),
               ),
               const SizedBox(height: 20),
               Row(
@@ -242,12 +222,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       );
     }
 
-    // ── Web: render the PDF.js iframe ────────────────────────────────────
+    // ── Web: render the <embed> platform view ────────────────────────────
     if (kIsWeb && _viewId != null) {
       return HtmlElementView(viewType: _viewId!);
     }
 
-    // ── Fallback (should not normally be reached) ─────────────────────
     return const Center(
         child: CircularProgressIndicator(color: Color(0xFF1E88E5)));
   }

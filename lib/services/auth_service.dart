@@ -175,7 +175,7 @@ class AuthService {
 
       return LoginResult.success(user);
     } catch (e) {
-      return LoginResult.failure('Login failed: ${e.toString()}');
+      return const LoginResult.failure('Login failed. Please try again.');
     }
   }
 
