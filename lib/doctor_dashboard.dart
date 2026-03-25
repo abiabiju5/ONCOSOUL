@@ -597,21 +597,19 @@ class _DoctorDashboardState extends State<DoctorDashboard>
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
-                  children: List.generate(cards.length, (i) {
-                    return FadeTransition(
-                      opacity: _cardAnimations[i],
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(0, 0.25),
-                          end: Offset.zero,
-                        ).animate(_cardAnimations[i]),
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: _buildCard(context, cards[i]),
-                        ),
-                      ),
-                    );
-                  }),
+                  children: [
+                    Row(children: [
+                      Expanded(child: FadeTransition(opacity: _cardAnimations[0], child: SlideTransition(position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(_cardAnimations[0]), child: _buildCard(context, cards[0])))),
+                      const SizedBox(width: 20),
+                      Expanded(child: FadeTransition(opacity: _cardAnimations[1], child: SlideTransition(position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(_cardAnimations[1]), child: _buildCard(context, cards[1])))),
+                    ]),
+                    const SizedBox(height: 20),
+                    Row(children: [
+                      Expanded(child: FadeTransition(opacity: _cardAnimations[2], child: SlideTransition(position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(_cardAnimations[2]), child: _buildCard(context, cards[2])))),
+                      const SizedBox(width: 20),
+                      Expanded(child: FadeTransition(opacity: _cardAnimations[3], child: SlideTransition(position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(_cardAnimations[3]), child: _buildCard(context, cards[3])))),
+                    ]),
+                  ],
                 ),
               ),
 
@@ -653,127 +651,66 @@ class _DoctorDashboardState extends State<DoctorDashboard>
   }
 
   Widget _buildCard(BuildContext context, _CardData data) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => data.screen)),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: data.gradient.first.withValues(alpha: 0.12),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 6, height: 88,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: data.gradient,
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                  borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(20)),
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => Navigator.push(
+          context, MaterialPageRoute(builder: (_) => data.screen)),
+      child: Container(
+        height: 140,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.90),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.9), width: 1.5),
+          boxShadow: [
+            BoxShadow(color: data.gradient.first.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 6)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              alignment: Alignment.topRight,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: data.lightColor, shape: BoxShape.circle),
+                  child: Icon(data.icon, size: 26, color: data.gradient.first),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Container(
-                width: 54, height: 54,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: data.gradient,
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: data.gradient.first.withValues(alpha: 0.35),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+                if (data.tag != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.green.shade300, width: 1),
                     ),
-                  ],
-                ),
-                child: Icon(data.icon, color: Colors.white, size: 26),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(data.title,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: data.gradient.first,
-                              letterSpacing: 0.1,
-                            )),
-                        if (data.tag != null) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                  color: Colors.green.shade300, width: 1),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 5, height: 5,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.green,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(data.tag!,
-                                    style: const TextStyle(
-                                      color: Colors.green,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w800,
-                                    )),
-                              ],
-                            ),
-                          ),
-                        ],
+                        Container(width: 5, height: 5, decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
+                        const SizedBox(width: 3),
+                        Text(data.tag!, style: const TextStyle(color: Colors.green, fontSize: 9, fontWeight: FontWeight.w800)),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(data.subtitle,
-                        style: TextStyle(
-                            fontSize: 12.5, color: Colors.grey.shade500)),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: data.lightColor,
-                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.arrow_forward_ios_rounded,
-                      size: 13, color: data.gradient.first),
-                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              data.title,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: Colors.grey.shade800,
+                height: 1.3,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

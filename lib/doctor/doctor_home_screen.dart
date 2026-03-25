@@ -337,71 +337,80 @@ class _DoctorDashboardTabState extends State<_DoctorDashboardTab> {
 
             // ── Quick Actions ────────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text('Quick Actions',
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade800)),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Row(children: [
+                Container(
+                  width: 4, height: 18,
+                  decoration: BoxDecoration(
+                    color: _green,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                const Text('Quick Actions',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0B2E6B),
+                        letterSpacing: 0.1)),
+              ]),
             ),
-            const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.5,
-                children: [
-                  _quickAction(
+              child: Column(children: [
+                Row(children: [
+                  Expanded(child: _quickAction(
                     icon: Icons.calendar_month_rounded,
                     label: 'Appointments',
-                    color: Colors.blue,
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const AppointmentsScreen())),
-                  ),
-                  _quickAction(
+                    iconColor: const Color(0xFF1A56A0),
+                    circleColor: const Color(0xFFD0E4F7),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const AppointmentsScreen())),
+                  )),
+                  const SizedBox(width: 20),
+                  Expanded(child: _quickAction(
                     icon: Icons.video_call_rounded,
                     label: 'Online Consultations',
-                    color: _green,
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const ConsultationsPage())),
-                  ),
-                  _quickAction(
+                    iconColor: const Color(0xFF0D47A1),
+                    circleColor: const Color(0xFFD0E8F7),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const ConsultationsPage())),
+                  )),
+                ]),
+                const SizedBox(height: 22),
+                Row(children: [
+                  Expanded(child: _quickAction(
                     icon: Icons.people_rounded,
                     label: 'My Patients',
-                    color: Colors.purple,
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const PatientsPage())),
-                  ),
-                  _quickAction(
+                    iconColor: const Color(0xFF6A1B9A),
+                    circleColor: const Color(0xFFEBE0F8),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const PatientsPage())),
+                  )),
+                  const SizedBox(width: 20),
+                  Expanded(child: _quickAction(
                     icon: Icons.description_rounded,
                     label: 'Reports',
-                    color: Colors.teal,
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const MedicalReportsPage())),
-                  ),
-                  _quickAction(
+                    iconColor: const Color(0xFF1E7A4A),
+                    circleColor: const Color(0xFFD0EFE0),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const MedicalReportsPage())),
+                  )),
+                ]),
+                const SizedBox(height: 22),
+                Row(children: [
+                  Expanded(child: _quickAction(
                     icon: Icons.bar_chart_rounded,
                     label: 'Analytics',
-                    color: Colors.indigo,
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const DoctorAnalyticsScreen())),
-                  ),
-                ],
-              ),
+                    iconColor: const Color(0xFF1A56A0),
+                    circleColor: const Color(0xFFD0E4F7),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const DoctorAnalyticsScreen())),
+                  )),
+                  const SizedBox(width: 20),
+                  Expanded(child: SizedBox(height: 140)),
+                ]),
+              ]),
             ),
 
             const SizedBox(height: 28),
@@ -478,40 +487,48 @@ class _DoctorDashboardTabState extends State<_DoctorDashboardTab> {
   Widget _quickAction({
     required IconData icon,
     required String label,
-    required Color color,
+    required Color iconColor,
+    required Color circleColor,
     required VoidCallback onTap,
   }) {
     return InkWell(
+      borderRadius: BorderRadius.circular(24),
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        height: 140,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          color: Colors.white.withValues(alpha: 0.90),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.9), width: 1.5),
           boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2))
+            BoxShadow(color: iconColor.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 6)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
           ],
         ),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: circleColor, shape: BoxShape.circle),
+              child: Icon(icon, size: 26, color: iconColor),
             ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(label,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 12)),
-          ),
-        ]),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: Colors.grey.shade800,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
