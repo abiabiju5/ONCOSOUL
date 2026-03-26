@@ -211,23 +211,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                         alignment: Alignment.centerRight,
                       ),
                     ),
-                    // Gradient overlay on the left so text is always readable over the white bg
-                    Positioned.fill(
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Color(0xFFEAF2FB),   // solid light-blue left
-                              Color(0xCCEAF2FB),   // semi-transparent centre
-                              Colors.transparent,  // fully transparent right (shows image)
-                            ],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            stops: [0.0, 0.42, 0.70],
-                          ),
-                        ),
-                      ),
-                    ),
+
                     // Text content on the left
                     Padding(
                       padding: const EdgeInsets.fromLTRB(28, 0, 0, 0),
@@ -242,6 +226,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                               fontWeight: FontWeight.bold,
                               color: const Color(0xFF0B2E6B),
                               height: 1.2,
+                              shadows: [Shadow(color: Colors.white70, blurRadius: 8)],
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -251,6 +236,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                               fontSize: subtitleSize,
                               color: const Color(0xFF2A4A7A),
                               height: 1.5,
+                              shadows: [Shadow(color: Colors.white70, blurRadius: 6)],
                             ),
                           ),
                         ],

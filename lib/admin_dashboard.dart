@@ -359,33 +359,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ],
       ),
       actions: [
-        // Notification bell
-        Padding(
-          padding: const EdgeInsets.only(right: 4),
-          child: GestureDetector(
-            onTap: () => _showNotificationPanel(context),
-            child: Stack(clipBehavior: Clip.none, children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE3F2FD),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.notifications_none_rounded,
-                    size: 20, color: _deepBlue),
-              ),
-              if (_notifService.staffUnreadCount > 0)
-                Positioned(right: -2, top: -2, child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                  child: Text(
-                    _notifService.staffUnreadCount > 9 ? '9+' : _notifService.staffUnreadCount.toString(),
-                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+        // Notification bell — Medical Staff only (not shown for hospital admin)
+        if (!_isAdmin)
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: GestureDetector(
+              onTap: () => _showNotificationPanel(context),
+              child: Stack(clipBehavior: Clip.none, children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3F2FD),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                )),
-            ]),
+                  child: const Icon(Icons.notifications_none_rounded,
+                      size: 20, color: _deepBlue),
+                ),
+                if (_notifService.staffUnreadCount > 0)
+                  Positioned(right: -2, top: -2, child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    child: Text(
+                      _notifService.staffUnreadCount > 9 ? '9+' : _notifService.staffUnreadCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                  )),
+              ]),
+            ),
           ),
-        ),
         Padding(
           padding: const EdgeInsets.only(right: 10),
           child: GestureDetector(

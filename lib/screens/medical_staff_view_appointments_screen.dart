@@ -183,9 +183,11 @@ class _MedicalStaffViewAppointmentsScreenState
                 'createdAt': FieldValue.serverTimestamp(),
               });
             }
+            const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            final dateStr = '${newDate.day} ${months[newDate.month - 1]} ${newDate.year}';
+
+            // Notify patient
             if (patientId.isNotEmpty) {
-              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              final dateStr = '${newDate.day} ${months[newDate.month - 1]} ${newDate.year}';
               await FirebaseFirestore.instance.collection('notifications').add({
                 'recipientId': patientId,
                 'type': 'rescheduled',
@@ -195,6 +197,32 @@ class _MedicalStaffViewAppointmentsScreenState
                 'createdAt': FieldValue.serverTimestamp(),
               });
             }
+
+            // Notify new doctor
+            if (newDoctorId.isNotEmpty) {
+              await FirebaseFirestore.instance.collection('notifications').add({
+                'recipientId': newDoctorId,
+                'type': 'rescheduled',
+                'title': 'Appointment Rescheduled',
+                'message': 'An appointment has been rescheduled to $dateStr at $newSlot.',
+                'isRead': false,
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+            }
+
+            // If doctor changed, also notify the original doctor that the appointment was moved away
+            if (oldDoctorId.isNotEmpty && oldDoctorId != newDoctorId) {
+              final oldDateStr = '${currentDate.day} ${months[currentDate.month - 1]} ${currentDate.year}';
+              await FirebaseFirestore.instance.collection('notifications').add({
+                'recipientId': oldDoctorId,
+                'type': 'rescheduled',
+                'title': 'Appointment Reassigned',
+                'message': 'An appointment originally scheduled on $oldDateStr at $currentSlot has been reassigned to Dr. $newDoctorName.',
+                'isRead': false,
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+            }
+
             if (mounted) _snack('Appointment rescheduled successfully.', isError: false);
           } catch (e) {
             if (mounted) _snack('Failed to reschedule: $e', isError: true);

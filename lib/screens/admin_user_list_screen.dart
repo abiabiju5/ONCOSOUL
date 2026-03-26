@@ -15,12 +15,14 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
 
+  // ✅ FIX: Values now match the UserRole constants stored in Firestore
+  // ('Patient', 'Doctor', 'Medical Staff', 'Admin') instead of lowercase
   final List<Map<String, String>> _roleFilters = [
     {'value': 'all', 'label': 'All'},
-    {'value': 'patient', 'label': 'Patients'},
-    {'value': 'doctor', 'label': 'Doctors'},
-    {'value': 'medical', 'label': 'Medical Staff'},
-    {'value': 'admin', 'label': 'Admins'},
+    {'value': 'Patient', 'label': 'Patients'},
+    {'value': 'Doctor', 'label': 'Doctors'},
+    {'value': 'Medical Staff', 'label': 'Medical Staff'},
+    {'value': 'Admin', 'label': 'Admins'},
   ];
 
   @override
@@ -88,23 +90,23 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
 
   Color _roleColor(String role) {
     switch (role) {
-      case 'doctor':
+      case 'Doctor':
         return const Color(0xFF1565C0);
-      case 'medical':
+      case 'Medical Staff':
         return const Color(0xFF00695C);
-      case 'admin':
+      case 'Admin':
         return const Color(0xFF6A1B9A);
-      default:
+      default: // 'Patient'
         return const Color(0xFF0277BD);
     }
   }
 
   String _roleLabel(String role) {
     switch (role) {
-      case 'medical':
+      case 'Medical Staff':
         return 'Medical Staff';
       default:
-        return role[0].toUpperCase() + role.substring(1);
+        return role; // Already properly capitalised from Firestore
     }
   }
 
@@ -260,7 +262,7 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
                     final name = data['name'] ?? 'Unknown';
                     final email = data['email'] ?? '';
                     final phone = data['phone'] ?? '';
-                    final role = data['role'] ?? 'patient';
+                    final role = data['role'] ?? 'Patient';
                     final isActive = data['isActive'] ?? true;
                     final roleColor = _roleColor(role);
 

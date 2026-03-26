@@ -202,152 +202,33 @@ class _AdminHomestayManagementScreenState
   }
 
   Future<void> _editHomestay(String docId, Map<String, dynamic> data) async {
-    final nameCtrl     = TextEditingController(text: data['name']     ?? '');
-    final locationCtrl = TextEditingController(text: data['location'] ?? '');
-    final contactCtrl  = TextEditingController(text: data['contact']  ?? '');
-    final latCtrl      = TextEditingController(text: (data['lat']     ?? '').toString());
-    final lngCtrl      = TextEditingController(text: (data['lng']     ?? '').toString());
-    final rateCtrl     = TextEditingController(text: (data['rate']    ?? '').toString());
-
-    String? editError;
-    bool editSaving = false;
-
+    // Delegates to a standalone StatefulWidget so all TextFields use the
+    // dialog's own BuildContext, avoiding the '_dependents.isEmpty' crash.
+    final messenger = ScaffoldMessenger.of(context);
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setStateDialog) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-          contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-          title: Row(children: [
-            Container(width: 4, height: 20,
-                decoration: BoxDecoration(color: deepBlue,
-                    borderRadius: BorderRadius.circular(2))),
-            const SizedBox(width: 10),
-            const Text('Edit Homestay',
-                style: TextStyle(color: deepBlue, fontSize: 16,
-                    fontWeight: FontWeight.w700)),
-          ]),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const SizedBox(height: 8),
-              _field(nameCtrl, 'Name *', Icons.home_rounded),
-              const SizedBox(height: 10),
-              _field(locationCtrl, 'Location / Hospital Nearby *',
-                  Icons.location_on_rounded),
-              const SizedBox(height: 10),
-              _field(contactCtrl, 'Contact Number *', Icons.phone_rounded,
-                  type: TextInputType.phone),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(child: _field(latCtrl, 'Latitude',
-                    Icons.gps_fixed_rounded,
-                    type: const TextInputType.numberWithOptions(decimal: true))),
-                const SizedBox(width: 10),
-                Expanded(child: _field(lngCtrl, 'Longitude',
-                    Icons.gps_not_fixed_rounded,
-                    type: const TextInputType.numberWithOptions(decimal: true))),
-              ]),
-              const SizedBox(height: 10),
-              _field(rateCtrl, 'Rate per Day (₹) *',
-                  Icons.currency_rupee_rounded, type: TextInputType.number),
-              if (editError != null) ...[
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFEBEE),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.red.shade200),
-                  ),
-                  child: Text(editError!,
-                      style: const TextStyle(color: Colors.red, fontSize: 12)),
-                ),
-              ],
-              const SizedBox(height: 8),
-            ]),
-          ),
-          actions: [
-            TextButton(
-              onPressed: editSaving ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel',
-                  style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: deepBlue, foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 10),
-              ),
-              onPressed: editSaving ? null : () async {
-                if (nameCtrl.text.trim().isEmpty ||
-                    locationCtrl.text.trim().isEmpty ||
-                    contactCtrl.text.trim().isEmpty ||
-                    rateCtrl.text.trim().isEmpty) {
-                  setStateDialog(() => editError =
-                      'Please fill in Name, Location, Contact and Rate.');
-                  return;
-                }
-                setStateDialog(() { editSaving = true; editError = null; });
-                try {
-                  await _col.doc(docId).update({
-                    'name':     nameCtrl.text.trim(),
-                    'location': locationCtrl.text.trim(),
-                    'contact':  contactCtrl.text.trim(),
-                    'lat':      double.tryParse(latCtrl.text.trim()) ?? 0.0,
-                    'lng':      double.tryParse(lngCtrl.text.trim()) ?? 0.0,
-                    'rate':     double.tryParse(rateCtrl.text.trim()) ?? 0.0,
-                  });
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Homestay updated successfully ✓'),
-                      backgroundColor: Colors.green,
-                      behavior: SnackBarBehavior.floating,
-                    ));
-                  }
-                } catch (e) {
-                  setStateDialog(() {
-                    editSaving = false;
-                    editError = 'Update failed: $e';
-                  });
-                }
-              },
-              icon: editSaving
-                  ? const SizedBox(width: 16, height: 16,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.save_rounded, size: 18),
-              label: Text(editSaving ? 'Saving…' : 'Save Changes',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
+      builder: (ctx) => _EditHomestayDialog(
+        docId: docId,
+        initialData: data,
+        firestoreCol: _col,
+        scaffoldMessenger: messenger,
       ),
     );
-
-    for (final c in [nameCtrl, locationCtrl, contactCtrl, latCtrl, lngCtrl, rateCtrl]) {
-      c.dispose();
-    }
   }
 
   Future<void> _delete(String docId) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dlgCtx) => AlertDialog(
         title: const Text('Delete Homestay'),
         content: const Text('Remove this homestay?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false),
+          TextButton(onPressed: () => Navigator.pop(dlgCtx, false),
               child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dlgCtx, true),
             child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -662,6 +543,12 @@ class _AdminHomestayManagementScreenState
 
   Widget _field(TextEditingController ctrl, String label, IconData icon,
       {TextInputType type = TextInputType.text}) {
+    return _fieldWithContext(ctrl, label, icon, type: type);
+  }
+
+  Widget _fieldWithContext(
+      TextEditingController ctrl, String label, IconData icon,
+      {TextInputType type = TextInputType.text}) {
     return TextField(
       controller: ctrl,
       keyboardType: type,
@@ -680,6 +567,208 @@ class _AdminHomestayManagementScreenState
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
       style: const TextStyle(fontSize: 14),
+    );
+  }
+}
+
+// ── Standalone edit dialog ────────────────────────────────────────────────────
+// Using a separate StatefulWidget ensures TextFields receive the dialog's own
+// BuildContext for Theme/MediaQuery lookups, preventing the
+// '_dependents.isEmpty is not true' assertion crash.
+
+class _EditHomestayDialog extends StatefulWidget {
+  final String docId;
+  final Map<String, dynamic> initialData;
+  final CollectionReference firestoreCol;
+  final ScaffoldMessengerState scaffoldMessenger;
+
+  const _EditHomestayDialog({
+    required this.docId,
+    required this.initialData,
+    required this.firestoreCol,
+    required this.scaffoldMessenger,
+  });
+
+  @override
+  State<_EditHomestayDialog> createState() => _EditHomestayDialogState();
+}
+
+class _EditHomestayDialogState extends State<_EditHomestayDialog> {
+  static const Color deepBlue   = Color(0xFF0D47A1);
+  static const Color mediumBlue = Color(0xFF1565C0);
+  static const Color accentBlue = Color(0xFF42A5F5);
+
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _locationCtrl;
+  late final TextEditingController _contactCtrl;
+  late final TextEditingController _latCtrl;
+  late final TextEditingController _lngCtrl;
+  late final TextEditingController _rateCtrl;
+
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    _nameCtrl     = TextEditingController(text: d['name']     ?? '');
+    _locationCtrl = TextEditingController(text: d['location'] ?? '');
+    _contactCtrl  = TextEditingController(text: d['contact']  ?? '');
+    _latCtrl      = TextEditingController(text: (d['lat']     ?? '').toString());
+    _lngCtrl      = TextEditingController(text: (d['lng']     ?? '').toString());
+    _rateCtrl     = TextEditingController(text: (d['rate']    ?? '').toString());
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_nameCtrl, _locationCtrl, _contactCtrl,
+                     _latCtrl, _lngCtrl, _rateCtrl]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Widget _field(TextEditingController ctrl, String label, IconData icon,
+      {TextInputType type = TextInputType.text}) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: type,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(
+            color: mediumBlue, fontWeight: FontWeight.w500, fontSize: 14),
+        prefixIcon: Icon(icon, color: accentBlue, size: 20),
+        filled: true,
+        fillColor: Colors.white,
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFBBDEFB), width: 1.5)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: deepBlue, width: 2)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+      style: const TextStyle(fontSize: 14),
+    );
+  }
+
+  Future<void> _save() async {
+    if (_nameCtrl.text.trim().isEmpty ||
+        _locationCtrl.text.trim().isEmpty ||
+        _contactCtrl.text.trim().isEmpty ||
+        _rateCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Please fill in Name, Location, Contact and Rate.');
+      return;
+    }
+    setState(() { _saving = true; _error = null; });
+    try {
+      await widget.firestoreCol.doc(widget.docId).update({
+        'name':     _nameCtrl.text.trim(),
+        'location': _locationCtrl.text.trim(),
+        'contact':  _contactCtrl.text.trim(),
+        'lat':      double.tryParse(_latCtrl.text.trim()) ?? 0.0,
+        'lng':      double.tryParse(_lngCtrl.text.trim()) ?? 0.0,
+        'rate':     double.tryParse(_rateCtrl.text.trim()) ?? 0.0,
+      });
+      if (mounted) Navigator.pop(context);
+      widget.scaffoldMessenger.showSnackBar(const SnackBar(
+        content: Text('Homestay updated successfully ✓'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ));
+    } catch (e) {
+      if (mounted) setState(() { _saving = false; _error = 'Update failed: $e'; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      title: Row(children: [
+        Container(
+          width: 4, height: 20,
+          decoration: BoxDecoration(
+              color: deepBlue, borderRadius: BorderRadius.circular(2)),
+        ),
+        const SizedBox(width: 10),
+        const Text('Edit Homestay',
+            style: TextStyle(
+                color: deepBlue, fontSize: 16, fontWeight: FontWeight.w700)),
+      ]),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 8),
+          _field(_nameCtrl, 'Name *', Icons.home_rounded),
+          const SizedBox(height: 10),
+          _field(_locationCtrl, 'Location / Hospital Nearby *',
+              Icons.location_on_rounded),
+          const SizedBox(height: 10),
+          _field(_contactCtrl, 'Contact Number *', Icons.phone_rounded,
+              type: TextInputType.phone),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+              child: _field(_latCtrl, 'Latitude', Icons.gps_fixed_rounded,
+                  type: const TextInputType.numberWithOptions(decimal: true)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _field(_lngCtrl, 'Longitude', Icons.gps_not_fixed_rounded,
+                  type: const TextInputType.numberWithOptions(decimal: true)),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          _field(_rateCtrl, 'Rate per Day (₹) *',
+              Icons.currency_rupee_rounded,
+              type: TextInputType.number),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFEBEE),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Text(_error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 12)),
+            ),
+          ],
+          const SizedBox(height: 8),
+        ]),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+        ),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: deepBlue,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          ),
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(
+                      color: Colors.white, strokeWidth: 2))
+              : const Icon(Icons.save_rounded, size: 18),
+          label: Text(_saving ? 'Saving…' : 'Save Changes',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+        ),
+      ],
     );
   }
 }
