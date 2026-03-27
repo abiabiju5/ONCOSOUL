@@ -53,6 +53,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
               builder: (_, __) => NotificationPanel(
                 notifications: _notifService.patientNotifications,
                 onMarkAllRead: _notifService.markAllPatientRead,
+                onDelete: _notifService.deleteNotification,
+                onClearAll: _notifService.clearAll,
               ),
             ),
           ),

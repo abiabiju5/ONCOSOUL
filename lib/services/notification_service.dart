@@ -280,6 +280,15 @@ class NotificationService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── Delete single notification ────────────────────────────────────────────
+
+  Future<void> deleteNotification(String id) async {
+    try {
+      await _db.collection('notifications').doc(id).delete();
+      // Stream will refresh the cache automatically.
+    } catch (_) {}
+  }
+
   // ── Clear all ─────────────────────────────────────────────────────────────
 
   Future<void> clearAll() async {

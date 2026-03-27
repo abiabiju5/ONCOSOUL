@@ -92,7 +92,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     // ── Entry stagger (1.2 s) ───────────────────────────────────
     _entryCtrl = AnimationController(vsync: this,
-        duration: const Duration(milliseconds: 1200));
+        duration: const Duration(milliseconds: 700));
 
     _bgFade    = _iv(0.00, 0.40, Curves.easeOut);
     _iconFade  = _iv(0.10, 0.50, Curves.easeOut);
@@ -122,9 +122,9 @@ class _SplashScreenState extends State<SplashScreen>
         CurvedAnimation(parent: _floatCtrl, curve: Curves.easeInOut));
 
     // ── Slide IN — content rises from below, fades in ───────────
-    // Duration 480 ms feels natural, not rushed
+    // Duration 300 ms — snappy but smooth
     _slideInCtrl = AnimationController(vsync: this,
-        duration: const Duration(milliseconds: 480));
+        duration: const Duration(milliseconds: 300));
     _inFade  = Tween<double>(begin: 0.0, end: 1.0).animate(
         CurvedAnimation(parent: _slideInCtrl, curve: Curves.easeOut));
     _inSlide = Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero)
@@ -132,9 +132,9 @@ class _SplashScreenState extends State<SplashScreen>
             curve: Curves.easeOutCubic));
 
     // ── Slide OUT — content drifts upward, fades out ─────────────
-    // Shorter (280 ms) so the swap feels crisp but not jarring
+    // 200 ms — crisp swap
     _slideOutCtrl = AnimationController(vsync: this,
-        duration: const Duration(milliseconds: 280));
+        duration: const Duration(milliseconds: 200));
     _outFade  = Tween<double>(begin: 1.0, end: 0.0).animate(
         CurvedAnimation(parent: _slideOutCtrl, curve: Curves.easeIn));
     _outSlide = Tween<Offset>(begin: Offset.zero,
@@ -144,7 +144,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     // ── Exit ────────────────────────────────────────────────────
     _exitCtrl = AnimationController(vsync: this,
-        duration: const Duration(milliseconds: 600));
+        duration: const Duration(milliseconds: 400));
     _exitFade = Tween<double>(begin: 1.0, end: 0.0).animate(
         CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInOut));
 
@@ -154,7 +154,7 @@ class _SplashScreenState extends State<SplashScreen>
     _floatCtrl.repeat(reverse: true);
 
     // Slide timer: OUT (drift up + fade) → swap → IN (rise + fade)
-    Timer.periodic(const Duration(milliseconds: 2400), (t) {
+    Timer.periodic(const Duration(milliseconds: 1400), (t) {
       if (!mounted) { t.cancel(); return; }
       _slideInCtrl.stop();
       setState(() => _animOut = true);
@@ -168,7 +168,7 @@ class _SplashScreenState extends State<SplashScreen>
       });
     });
 
-    Timer(const Duration(milliseconds: 7500), _navigateToLogin);
+    Timer(const Duration(milliseconds: 3500), _navigateToLogin);
   }
 
   Animation<double> _iv(double from, double to, Curve curve) =>
@@ -184,7 +184,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     // Login page fades in cleanly — no slide, no jitter
     Navigator.pushReplacement(context, PageRouteBuilder(
-      transitionDuration: const Duration(milliseconds: 600),
+      transitionDuration: const Duration(milliseconds: 400),
       pageBuilder: (_, __, ___) => const LoginPage(),
       transitionsBuilder: (_, anim, __, child) => FadeTransition(
         opacity: CurvedAnimation(parent: anim, curve: Curves.easeIn),

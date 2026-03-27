@@ -138,6 +138,47 @@ class HomestayScreen extends StatelessWidget {
                                     fontSize: 12,
                                     color: Colors.grey.shade600))),
                       ]),
+                      const SizedBox(height: 10),
+                      // Contact number display
+                      if (contact.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _ice,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: _navy.withValues(alpha: 0.15)),
+                          ),
+                          child: Row(children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                  color: _navy,
+                                  shape: BoxShape.circle),
+                              child: const Icon(Icons.phone_rounded,
+                                  size: 14, color: Colors.white),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Contact Number',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade500,
+                                        fontWeight: FontWeight.w500)),
+                                Text(contact,
+                                    style: const TextStyle(
+                                        fontSize: 14,
+                                        color: _navy,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.5)),
+                              ],
+                            ),
+                          ]),
+                        ),
                       const SizedBox(height: 12),
                       // Action buttons
                       Row(children: [

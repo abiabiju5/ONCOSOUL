@@ -68,6 +68,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               a.patientName.toLowerCase().contains(_searchQuery.toLowerCase()))
           .toList();
     }
+    result.sort((a, b) => b.date.compareTo(a.date)); // Most recent first
     return result;
   }
 

@@ -36,10 +36,12 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
   final _dosageCtrl = TextEditingController();
   final _durationCtrl = TextEditingController();
   final _instructionsCtrl = TextEditingController();
+  final _diagnosisCtrl = TextEditingController();
 
   final List<Map<String, String>> _prescriptions = [];
 
   bool _isSavingNotes = false;
+  bool _isIssuingPrescription = false;
   bool _notesLoading = true;
 
   bool _videoExpanded = true;
@@ -92,6 +94,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
     _dosageCtrl.dispose();
     _durationCtrl.dispose();
     _instructionsCtrl.dispose();
+    _diagnosisCtrl.dispose();
     super.dispose();
   }
 
@@ -137,6 +140,34 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
       _snack('Failed to save notes: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isSavingNotes = false);
+    }
+  }
+
+  Future<void> _issuePrescription() async {
+    if (_prescriptions.isEmpty) {
+      _snack('Please add at least one medicine before issuing.', isError: true);
+      return;
+    }
+    setState(() => _isIssuingPrescription = true);
+    try {
+      await _service.savePrescription(
+        appointmentId: widget.appointmentId,
+        patientId: widget.patientId,
+        patientName: widget.patientName,
+        medicines: _prescriptions,
+        diagnosis: _diagnosisCtrl.text.trim().isEmpty
+            ? null
+            : _diagnosisCtrl.text.trim(),
+      );
+      setState(() {
+        _prescriptions.clear();
+        _diagnosisCtrl.clear();
+      });
+      _snack('Prescription issued successfully!');
+    } catch (e) {
+      _snack('Failed to issue prescription: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isIssuingPrescription = false);
     }
   }
 
@@ -591,6 +622,36 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
                             borderRadius: BorderRadius.circular(10)),
                       ),
                       onPressed: _addMedicine,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  _field(_diagnosisCtrl, 'Diagnosis (optional)',
+                      Icons.local_hospital_outlined),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: _isIssuingPrescription
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.send_rounded, size: 16),
+                      label: Text(_isIssuingPrescription
+                          ? 'Issuing…'
+                          : 'Issue Prescription'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF7B1FA2),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed:
+                          _isIssuingPrescription ? null : _issuePrescription,
                     ),
                   ),
                 ],

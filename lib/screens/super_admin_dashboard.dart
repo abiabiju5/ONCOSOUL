@@ -4,17 +4,18 @@ import 'admin_awareness_management_screen.dart';
 import 'admin_homestay_management_screen.dart';
 import '../models/app_user_session.dart' hide AppUser;
 import '../services/auth_service.dart';
+import '../services/admin_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/notification_panel.dart';
 
-class SuperAdminDashboard extends StatefulWidget {
-  const SuperAdminDashboard({super.key});
+class SystemAdminDashboard extends StatefulWidget {
+  const SystemAdminDashboard({super.key});
 
   @override
-  State<SuperAdminDashboard> createState() => _SuperAdminDashboardState();
+  State<SystemAdminDashboard> createState() => _SystemAdminDashboardState();
 }
 
-class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
+class _SystemAdminDashboardState extends State<SystemAdminDashboard> {
   final _authService = AuthService();
   final _notifService = NotificationService.instance;
 
@@ -49,6 +50,8 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
               builder: (_, __) => NotificationPanel(
                 notifications: _notifService.staffNotifications,
                 onMarkAllRead: _notifService.markAllStaffRead,
+                onDelete: _notifService.deleteNotification,
+                onClearAll: _notifService.clearAll,
               ),
             ),
           ),
@@ -195,7 +198,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
             _sectionLabel("System Analytics"),
             const SizedBox(height: 12),
             // ✅ Live Firestore analytics — no more UserData
-            _LiveAnalyticsBox(authService: _authService),
+            _LiveAnalyticsBox(),
           ],
         ),
       ),
@@ -348,7 +351,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                 Text(
                   AppUserSession.userName.isNotEmpty
                       ? AppUserSession.userName
-                      : 'Super Admin',
+                      : 'System Admin',
                   style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
@@ -400,156 +403,178 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
 }
 
 // ─── Live Analytics Box ───────────────────────────────────────────────────────
-class _LiveAnalyticsBox extends StatelessWidget {
-  final AuthService authService;
-  const _LiveAnalyticsBox({required this.authService});
+class _LiveAnalyticsBox extends StatefulWidget {
+  const _LiveAnalyticsBox();
+
+  @override
+  State<_LiveAnalyticsBox> createState() => _LiveAnalyticsBoxState();
+}
+
+class _LiveAnalyticsBoxState extends State<_LiveAnalyticsBox> {
+  final _adminService = AdminService();
+  AdminDashboardStats? _stats;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final stats = await _adminService.fetchDashboardStats();
+      if (mounted) setState(() { _stats = stats; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _loading = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<AppUser>>(
-      stream: authService.getAllUsersStream(),
-      builder: (context, snapshot) {
-        final users = snapshot.data ?? [];
-        final isLoading =
-            snapshot.connectionState == ConnectionState.waiting;
+    final s = _stats;
 
-        final totalPatients =
-            users.where((u) => u.role == UserRole.patient).length;
-        final totalDoctors =
-            users.where((u) => u.role == UserRole.doctor).length;
-        final activeUsers = users.where((u) => u.isActive).length;
+    final stats = [
+      _StatData(
+        label: 'Patients',
+        value: s?.totalPatients ?? 0,
+        icon: Icons.personal_injury_outlined,
+        color: const Color(0xFF1565C0),
+        bgColor: const Color(0xFFE3F2FD),
+      ),
+      _StatData(
+        label: 'Doctors',
+        value: s?.totalDoctors ?? 0,
+        icon: Icons.medical_services_outlined,
+        color: const Color(0xFF2E7D32),
+        bgColor: const Color(0xFFE8F5E9),
+      ),
+      _StatData(
+        label: 'Appointments',
+        value: s?.totalAppointments ?? 0,
+        icon: Icons.calendar_month_outlined,
+        color: const Color(0xFF6A1B9A),
+        bgColor: const Color(0xFFF3E5F5),
+      ),
+      _StatData(
+        label: 'Homestays',
+        value: s?.totalHomestays ?? 0,
+        icon: Icons.hotel_outlined,
+        color: const Color(0xFFE65100),
+        bgColor: const Color(0xFFFFF3E0),
+      ),
+      _StatData(
+        label: 'Awareness',
+        value: s?.totalAwareness ?? 0,
+        icon: Icons.article_outlined,
+        color: const Color(0xFF00695C),
+        bgColor: const Color(0xFFE0F2F1),
+      ),
+      _StatData(
+        label: 'Forum Posts',
+        value: s?.totalForumPosts ?? 0,
+        icon: Icons.forum_outlined,
+        color: const Color(0xFF0277BD),
+        bgColor: const Color(0xFFE1F5FE),
+      ),
+    ];
 
-        final stats = [
-          _StatData(
-            label: 'Patients',
-            value: totalPatients,
-            icon: Icons.personal_injury_outlined,
-            color: const Color(0xFF1565C0),
-            bgColor: const Color(0xFFE3F2FD),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
-          _StatData(
-            label: 'Doctors',
-            value: totalDoctors,
-            icon: Icons.medical_services_outlined,
-            color: const Color(0xFF2E7D32),
-            bgColor: const Color(0xFFE8F5E9),
-          ),
-          _StatData(
-            label: 'Active',
-            value: activeUsers,
-            icon: Icons.people_alt_outlined,
-            color: const Color(0xFF6A1B9A),
-            bgColor: const Color(0xFFF3E5F5),
-          ),
-          const _StatData(
-            label: 'Bookings',
-            value: 0,
-            icon: Icons.hotel_outlined,
-            color: Color(0xFFE65100),
-            bgColor: Color(0xFFFFF3E0),
-          ),
-          const _StatData(
-            label: 'Posts',
-            value: 0,
-            icon: Icons.article_outlined,
-            color: Color(0xFF00695C),
-            bgColor: Color(0xFFE0F2F1),
-          ),
-        ];
-
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Overview',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0D47A1)),
+              const Text(
+                'Overview',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0D47A1)),
+              ),
+              GestureDetector(
+                onTap: () { setState(() { _loading = true; }); _loadStats(); },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _loading ? const Color(0xFFF5F5F5) : const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isLoading
-                          ? const Color(0xFFF5F5F5)
-                          : const Color(0xFFE8F5E9),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isLoading)
-                          const SizedBox(
-                            width: 8,
-                            height: 8,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: Color(0xFF2E7D32)),
-                          )
-                        else
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                                color: Color(0xFF2E7D32),
-                                shape: BoxShape.circle),
-                          ),
-                        const SizedBox(width: 5),
-                        Text(
-                          isLoading ? 'Loading…' : 'Live',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: isLoading
-                                  ? Colors.grey
-                                  : const Color(0xFF2E7D32)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_loading)
+                        const SizedBox(
+                          width: 8,
+                          height: 8,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 1.5, color: Color(0xFF2E7D32)),
+                        )
+                      else
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                              color: Color(0xFF2E7D32), shape: BoxShape.circle),
                         ),
-                      ],
-                    ),
+                      const SizedBox(width: 5),
+                      Text(
+                        _loading ? 'Loading…' : 'Tap to refresh',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: _loading ? Colors.grey : const Color(0xFF2E7D32)),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _StatCard(data: stats[0])),
-                  const SizedBox(width: 10),
-                  Expanded(child: _StatCard(data: stats[1])),
-                  const SizedBox(width: 10),
-                  Expanded(child: _StatCard(data: stats[2])),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(child: _StatCard(data: stats[3])),
-                  const SizedBox(width: 10),
-                  Expanded(child: _StatCard(data: stats[4])),
-                  const SizedBox(width: 10),
-                  const Expanded(child: SizedBox()),
-                ],
+                ),
               ),
             ],
           ),
-        );
-      },
+          const SizedBox(height: 16),
+          if (_loading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else ...[
+            Row(
+              children: [
+                Expanded(child: _StatCard(data: stats[0])),
+                const SizedBox(width: 10),
+                Expanded(child: _StatCard(data: stats[1])),
+                const SizedBox(width: 10),
+                Expanded(child: _StatCard(data: stats[2])),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _StatCard(data: stats[3])),
+                const SizedBox(width: 10),
+                Expanded(child: _StatCard(data: stats[4])),
+                const SizedBox(width: 10),
+                Expanded(child: _StatCard(data: stats[5])),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

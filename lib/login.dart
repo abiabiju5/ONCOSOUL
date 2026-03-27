@@ -150,7 +150,7 @@ class _LoginPageState extends State<LoginPage>
       case UserRole.superAdmin:
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const SuperAdminDashboard()),
+          MaterialPageRoute(builder: (_) => const SystemAdminDashboard()),
         );
         break;
       default:

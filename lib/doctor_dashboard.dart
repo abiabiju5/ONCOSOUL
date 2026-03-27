@@ -91,6 +91,8 @@ class _DoctorDashboardState extends State<DoctorDashboard>
                 builder: (_, __) => NotificationPanel(
                   notifications: _notifService.doctorNotifications,
                   onMarkAllRead: _notifService.markAllDoctorRead,
+                  onDelete: _notifService.deleteNotification,
+                  onClearAll: _notifService.clearAll,
                 ),
               ),
             ),

@@ -67,6 +67,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
               builder: (_, __) => NotificationPanel(
                 notifications: _notifService.staffNotifications,
                 onMarkAllRead: _notifService.markAllStaffRead,
+                onDelete: _notifService.deleteNotification,
+                onClearAll: _notifService.clearAll,
               ),
             ),
           ),
