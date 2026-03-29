@@ -29,7 +29,7 @@ class _AdminManageAppointmentsScreenState
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 1, vsync: this);
     _loadRules();
   }
 
@@ -191,7 +191,6 @@ class _AdminManageAppointmentsScreenState
           labelStyle: const TextStyle(fontWeight: FontWeight.w700),
           tabs: const [
             Tab(text: 'Rules'),
-            Tab(text: 'Bookings'),
           ],
         ),
       ),
@@ -199,7 +198,6 @@ class _AdminManageAppointmentsScreenState
         controller: _tabController,
         children: [
           _buildRulesTab(),
-          _buildBookingsTab(),
         ],
       ),
     );
@@ -358,177 +356,6 @@ class _AdminManageAppointmentsScreenState
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildBookingsTab() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('appointments')
-          .orderBy('appointmentDate', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final docs = snapshot.data!.docs;
-
-        if (docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.event_busy_outlined,
-                    size: 60, color: Colors.grey.shade300),
-                const SizedBox(height: 12),
-                Text('No appointments found',
-                    style: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w600)),
-              ],
-            ),
-          );
-        }
-
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (_, i) {
-            final data = docs[i].data() as Map<String, dynamic>;
-            final docId = docs[i].id;
-            final patientName = data['patientName'] ?? 'Unknown';
-            final doctorName = data['doctorName'] ?? 'N/A';
-            final status = data['status'] ?? 'pending';
-            final date = data['appointmentDate'] as Timestamp?;
-            final formattedDate = date != null
-                ? DateFormat('dd MMM yyyy, hh:mm a')
-                    .format(date.toDate())
-                : 'N/A';
-
-            Color statusColor;
-            switch (status) {
-              case 'confirmed':
-                statusColor = Colors.green.shade700;
-                break;
-              case 'cancelled':
-                statusColor = Colors.red.shade700;
-                break;
-              default:
-                statusColor = Colors.orange.shade700;
-            }
-
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2))
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(patientName,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15)),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            status[0].toUpperCase() +
-                                status.substring(1),
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: statusColor),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text('Dr. $doctorName',
-                        style: const TextStyle(
-                            fontSize: 13, color: Colors.black54)),
-                    Text(formattedDate,
-                        style: const TextStyle(
-                            fontSize: 12, color: Colors.black38)),
-                    if (status == 'pending') ...[
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red.shade700,
-                                side: BorderSide(
-                                    color: Colors.red.shade300),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(8)),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 8),
-                              ),
-                              onPressed: () =>
-                                  _updateAppointmentStatus(
-                                      docId, 'cancelled'),
-                              child: const Text('Cancel',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13)),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor:
-                                    Colors.green.shade700,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(8)),
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 8),
-                              ),
-                              onPressed: () =>
-                                  _updateAppointmentStatus(
-                                      docId, 'confirmed'),
-                              child: const Text('Confirm',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
   }
 

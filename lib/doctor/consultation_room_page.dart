@@ -49,6 +49,7 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
   bool _summariesExpanded = true;
   bool _notesExpanded = true;
   bool _prescriptionExpanded = true;
+  bool _newPrescriptionExpanded = true;
 
   late AnimationController _fadeCtrl;
   late Animation<double> _fadeAnim;
@@ -557,14 +558,338 @@ class _ConsultationRoomPageState extends State<ConsultationRoomPage>
 
             const SizedBox(height: 16),
 
-            // ── Prescription (saves PDF + Firestore) ───────────────────────
+            // ── Patient Medicine List (all prescriptions + offline) ────────
             _section(
-              title: 'Prescription',
-              icon: Icons.medication_rounded,
-              color: const Color(0xFF7B1FA2),
+              title: 'Patient Medicine List',
+              icon: Icons.medication_liquid_rounded,
+              color: const Color(0xFF00796B),
               isExpanded: _prescriptionExpanded,
               onToggle: () => setState(
                   () => _prescriptionExpanded = !_prescriptionExpanded),
+              child: StreamBuilder<List<DoctorPrescription>>(
+                stream: _service.allPrescriptionsForPatientStream(widget.patientId),
+                builder: (context, prescSnap) {
+                  return StreamBuilder<List<FirestoreSummary>>(
+                    stream: _service.summariesForPatient(widget.patientId),
+                    builder: (context, summSnap) {
+                      final onlineRx = prescSnap.data ?? [];
+                      final summaries = summSnap.data ?? [];
+                      // Build offline medicine entries from summaries that have treatmentGiven
+                      final offlineTreatments = summaries
+                          .where((s) => s.treatmentGiven.trim().isNotEmpty)
+                          .toList();
+
+                      if (onlineRx.isEmpty && offlineTreatments.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(children: [
+                            Icon(Icons.info_outline_rounded,
+                                size: 16, color: Colors.grey.shade400),
+                            const SizedBox(width: 8),
+                            const Text('No previous medicines on record.',
+                                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          ]),
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Online prescriptions
+                          if (onlineRx.isNotEmpty) ...[
+                            const Text('Online Prescriptions',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF00796B))),
+                            const SizedBox(height: 8),
+                            ...onlineRx.map((rx) {
+                              final dateStr =
+                                  '${rx.createdAt.day}/${rx.createdAt.month}/${rx.createdAt.year}';
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE0F2F1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: const Color(0xFF80CBC4)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8),
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF00796B),
+                                        borderRadius: BorderRadius.vertical(
+                                            top: Radius.circular(10)),
+                                      ),
+                                      child: Row(children: [
+                                        const Icon(Icons.person_rounded,
+                                            size: 13,
+                                            color: Colors.white70),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            'Dr. ${rx.doctorName}  ·  $dateStr',
+                                            style: const TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.white,
+                                                fontWeight:
+                                                    FontWeight.w600),
+                                          ),
+                                        ),
+                                        if (rx.diagnosis != null &&
+                                            rx.diagnosis!.isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.2),
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                            ),
+                                            child: Text(rx.diagnosis!,
+                                                style: const TextStyle(
+                                                    fontSize: 10,
+                                                    color: Colors.white)),
+                                          ),
+                                      ]),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: Column(
+                                        children: rx.medicines.map((m) {
+                                          final name = m['medicine'] ??
+                                              m['name'] ??
+                                              '';
+                                          final dosage = m['dosage'] ?? '';
+                                          final duration =
+                                              m['duration'] ?? '';
+                                          final instructions =
+                                              m['instructions'] ?? '';
+                                          return Padding(
+                                            padding: const EdgeInsets.only(
+                                                bottom: 6),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Container(
+                                                  margin:
+                                                      const EdgeInsets.only(
+                                                          top: 5, right: 8),
+                                                  width: 7,
+                                                  height: 7,
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                    color:
+                                                        Color(0xFF00796B),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(name,
+                                                          style: const TextStyle(
+                                                              fontSize: 13,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color: Color(
+                                                                  0xFF004D40))),
+                                                      if (dosage.isNotEmpty ||
+                                                          duration.isNotEmpty)
+                                                        Text(
+                                                          [
+                                                            if (dosage
+                                                                .isNotEmpty)
+                                                              dosage,
+                                                            if (duration
+                                                                .isNotEmpty)
+                                                              duration,
+                                                          ].join('  ·  '),
+                                                          style: TextStyle(
+                                                              fontSize: 11,
+                                                              color: Colors
+                                                                  .grey
+                                                                  .shade600),
+                                                        ),
+                                                      if (instructions
+                                                          .isNotEmpty)
+                                                        Text(instructions,
+                                                            style: TextStyle(
+                                                                fontSize: 11,
+                                                                color: Colors
+                                                                    .grey
+                                                                    .shade500,
+                                                                fontStyle:
+                                                                    FontStyle
+                                                                        .italic)),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+
+                          // Offline treatments from consultation summaries
+                          if (offlineTreatments.isNotEmpty) ...[
+                            if (onlineRx.isNotEmpty)
+                              const SizedBox(height: 12),
+                            const Text('Offline Visit Treatments',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF5D4037))),
+                            const SizedBox(height: 8),
+                            ...offlineTreatments.map((s) {
+                              final dateStr =
+                                  '${s.uploadedAt.day}/${s.uploadedAt.month}/${s.uploadedAt.year}';
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF8E1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: const Color(0xFFFFCC80)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8),
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF795548),
+                                        borderRadius: BorderRadius.vertical(
+                                            top: Radius.circular(10)),
+                                      ),
+                                      child: Row(children: [
+                                        const Icon(
+                                            Icons.local_hospital_rounded,
+                                            size: 13,
+                                            color: Colors.white70),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            '${s.doctorName}  ·  $dateStr',
+                                            style: const TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.white,
+                                                fontWeight:
+                                                    FontWeight.w600),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.2),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                          ),
+                                          child: const Text('Offline',
+                                              style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.white)),
+                                        ),
+                                      ]),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (s.diagnosis.isNotEmpty) ...[
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                const Icon(
+                                                    Icons.biotech_outlined,
+                                                    size: 13,
+                                                    color: Color(0xFF795548)),
+                                                const SizedBox(width: 6),
+                                                Expanded(
+                                                  child: Text(
+                                                    s.diagnosis,
+                                                    style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors
+                                                            .grey.shade700),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                          ],
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Icon(
+                                                  Icons.medication_outlined,
+                                                  size: 13,
+                                                  color: Color(0xFF795548)),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  s.treatmentGiven,
+                                                  style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: Color(
+                                                          0xFF3E2723)),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── Prescription (saves PDF + Firestore) ───────────────────────
+            _section(
+              title: 'Add New Prescription',
+              icon: Icons.medication_rounded,
+              color: const Color(0xFF7B1FA2),
+              isExpanded: _newPrescriptionExpanded,
+              onToggle: () => setState(
+                  () => _newPrescriptionExpanded = !_newPrescriptionExpanded),
               child: Column(
                 children: [
                   if (_prescriptions.isNotEmpty) ...[

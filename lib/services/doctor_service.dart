@@ -1186,6 +1186,19 @@ class DoctorService {
         });
   }
 
+  /// Live stream — ALL prescriptions for a patient across all doctors, newest first.
+  Stream<List<DoctorPrescription>> allPrescriptionsForPatientStream(
+      String patientId) {
+    return _prescriptions
+        .where('patientId', isEqualTo: patientId)
+        .snapshots()
+        .map((s) {
+          final list = s.docs.map((d) => DoctorPrescription.fromMap(d.id, d.data())).toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        });
+  }
+
   /// Fetch the most recent prescription for a specific appointment.
   Future<DoctorPrescription?> fetchPrescriptionForAppointment(
       String appointmentId) async {

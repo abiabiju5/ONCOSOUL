@@ -883,12 +883,25 @@ class _AdminAwarenessManagementScreenState
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       TextField(
         controller: ctrl,
+        onChanged: (_) => setS(() {}), // rebuild chips on every keystroke
         decoration: InputDecoration(
           labelText: 'Category',
+          hintText: 'Type a category or pick one below',
+          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
           labelStyle: const TextStyle(
               color: mediumBlue, fontWeight: FontWeight.w500, fontSize: 14),
           prefixIcon: const Icon(Icons.category_rounded,
               color: accentBlue, size: 20),
+          suffixIcon: ctrl.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear_rounded,
+                      color: Colors.grey, size: 18),
+                  tooltip: 'Clear category',
+                  onPressed: () => setS(() {
+                    ctrl.clear();
+                  }),
+                )
+              : null,
           filled: true, fillColor: Colors.white,
           enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
@@ -902,14 +915,28 @@ class _AdminAwarenessManagementScreenState
         ),
         style: const TextStyle(fontSize: 14),
       ),
-      const SizedBox(height: 8),
+      const SizedBox(height: 4),
+      Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 4),
+        child: Text(
+          'Or choose a predefined category:',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+        ),
+      ),
       Wrap(
         spacing: 6, runSpacing: 6,
         children: _predefinedCategories.map((cat) {
-          final selected = ctrl.text == cat;
+          final selected = ctrl.text.trim().toLowerCase() ==
+              cat.toLowerCase();
           final accent = accentFor(cat);
           return GestureDetector(
-            onTap: () => setS(() => ctrl.text = cat),
+            onTap: () => setS(() {
+              // Properly set text AND move cursor to end
+              ctrl.value = TextEditingValue(
+                text: cat,
+                selection: TextSelection.collapsed(offset: cat.length),
+              );
+            }),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),

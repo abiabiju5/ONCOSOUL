@@ -31,15 +31,31 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
     super.dispose();
   }
 
-  Query<Map<String, dynamic>> get _query {
-    Query<Map<String, dynamic>> q =
-        FirebaseFirestore.instance.collection('users');
-    if (_selectedRole != 'all') {
-      q = q.where('role', isEqualTo: _selectedRole);
+  /// Derives the correct role from the userId prefix set at account creation.
+  /// P → Patient, D → Doctor, M → Medical Staff, A → Admin, S → Super Admin
+  String _roleFromUserId(String userId) {
+    if (userId.isEmpty) return 'Patient';
+    switch (userId[0].toUpperCase()) {
+      case 'D': return 'Doctor';
+      case 'M': return 'Medical Staff';
+      case 'A': return 'Admin';
+      case 'S': return 'Super Admin';
+      default:  return 'Patient';
     }
-    // Sorting is done client-side to avoid requiring a Firestore composite index
-    return q;
   }
+
+  /// If the stored role doesn't match the userId prefix, silently fix it.
+  void _autoCorrectRole(String uid, String storedRole, String correctRole) {
+    if (storedRole != correctRole) {
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update({'role': correctRole});
+    }
+  }
+
+  Query<Map<String, dynamic>> get _query =>
+      FirebaseFirestore.instance.collection('users');
 
   Future<void> _toggleActive(String uid, bool currentStatus) async {
     await FirebaseFirestore.instance
@@ -86,6 +102,118 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
       ),
     );
     if (confirmed == true) await _toggleActive(uid, isActive);
+  }
+
+  Future<void> _changeRole(String uid, String name, String currentRole) async {
+    String selectedRole = currentRole;
+    final roles = ['Patient', 'Doctor', 'Medical Staff', 'Admin'];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Change Role for "$name"',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, color: _deepBlue, fontSize: 15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: roles
+                .map((role) => RadioListTile<String>(
+                      value: role,
+                      groupValue: selectedRole,
+                      title: Text(role, style: const TextStyle(fontSize: 14)),
+                      activeColor: _deepBlue,
+                      onChanged: (v) => setDialogState(() => selectedRole = v!),
+                    ))
+                .toList(),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _deepBlue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed == true && selectedRole != currentRole) {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update({'role': selectedRole});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$name\'s role updated to $selectedRole.'),
+        backgroundColor: Colors.blue.shade700,
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  void _showUserOptions(String uid, String name, String role, bool isActive) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(name,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(height: 4),
+            Text(role,
+                style: TextStyle(color: _roleColor(role), fontSize: 12)),
+            const Divider(height: 24),
+            ListTile(
+              leading: const Icon(Icons.manage_accounts_outlined,
+                  color: _deepBlue),
+              title: const Text('Change Role'),
+              onTap: () {
+                Navigator.pop(context);
+                _changeRole(uid, name, role);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                isActive ? Icons.block : Icons.check_circle_outline,
+                color: isActive ? Colors.orange : Colors.green,
+              ),
+              title: Text(
+                  isActive ? 'Deactivate Account' : 'Activate Account'),
+              onTap: () {
+                Navigator.pop(context);
+                _confirmToggle(uid, name, isActive);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   Color _roleColor(String role) {
@@ -222,6 +350,10 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
                   return bTime.compareTo(aTime);
                 });
                 final docs = allDocs.where((doc) {
+                  // Filter by role using userId prefix (authoritative)
+                  if (_selectedRole != 'all') {
+                    if (_roleFromUserId(doc.id) != _selectedRole) return false;
+                  }
                   if (_searchQuery.isEmpty) return true;
                   final data = doc.data() as Map<String, dynamic>;
                   final name =
@@ -262,11 +394,17 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
                     final name = data['name'] ?? 'Unknown';
                     final email = data['email'] ?? '';
                     final phone = data['phone'] ?? '';
-                    final role = data['role'] ?? 'Patient';
+                    final storedRole = data['role'] ?? 'Patient';
+                    // Derive authoritative role from userId prefix
+                    final role = _roleFromUserId(uid);
+                    // Silently fix Firestore if role was stored incorrectly
+                    _autoCorrectRole(uid, storedRole, role);
                     final isActive = data['isActive'] ?? true;
                     final roleColor = _roleColor(role);
 
-                    return Container(
+                    return GestureDetector(
+                      onTap: () => _showUserOptions(uid, name, role, isActive),
+                      child: Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
@@ -359,7 +497,7 @@ class _AdminUserListScreenState extends State<AdminUserListScreen> {
                           ),
                         ),
                       ),
-                    );
+                    )); // closes inner Container + GestureDetector
                   },
                 );
               },

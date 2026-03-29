@@ -404,6 +404,387 @@ class PatientDetailsPage extends StatelessWidget {
                 );
               },
             ),
+
+            const SizedBox(height: 20),
+
+            // ── Medicine List (online prescriptions + offline treatments) ──
+            _sectionHeader('Medicine List', Icons.medication_liquid_rounded),
+            const SizedBox(height: 10),
+            StreamBuilder<List<DoctorPrescription>>(
+              stream: service.allPrescriptionsForPatientStream(patient.userId),
+              builder: (context, prescSnap) {
+                return StreamBuilder<List<FirestoreSummary>>(
+                  stream: service.summariesForPatient(patient.userId),
+                  builder: (context, summSnap) {
+                    if (prescSnap.connectionState == ConnectionState.waiting ||
+                        summSnap.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                          child: CircularProgressIndicator(color: _deepBlue));
+                    }
+                    final prescriptions = prescSnap.data ?? [];
+                    final offlineTreatments = (summSnap.data ?? [])
+                        .where((s) => s.treatmentGiven.trim().isNotEmpty)
+                        .toList();
+
+                    if (prescriptions.isEmpty && offlineTreatments.isEmpty) {
+                      return _emptyCard(Icons.medication_outlined,
+                          'No medicines on record.');
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Online prescriptions
+                        if (prescriptions.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text('Online Prescriptions',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: _deepBlue.withValues(alpha: 0.7))),
+                          ),
+                          ...prescriptions.map((rx) {
+                            final dateStr =
+                                '${rx.createdAt.day}/${rx.createdAt.month}/${rx.createdAt.year}';
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF7B1FA2)
+                                        .withValues(alpha: 0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      height: 3,
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(colors: [
+                                          Color(0xFF7B1FA2),
+                                          Color(0xFFAB47BC)
+                                        ]),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(children: [
+                                            Container(
+                                              padding: const EdgeInsets
+                                                  .all(7),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    const Color(0xFFF3E5F5),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        8),
+                                              ),
+                                              child: const Icon(
+                                                  Icons.medication_rounded,
+                                                  size: 16,
+                                                  color:
+                                                      Color(0xFF7B1FA2)),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment
+                                                        .start,
+                                                children: [
+                                                  Text(
+                                                      'Dr. ${rx.doctorName}',
+                                                      style: const TextStyle(
+                                                          fontSize: 13,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: _textPrim)),
+                                                  Text(dateStr,
+                                                      style: const TextStyle(
+                                                          fontSize: 11,
+                                                          color: _textSec)),
+                                                ],
+                                              ),
+                                            ),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    const Color(0xFFF3E5F5),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        20),
+                                              ),
+                                              child: const Text('Online',
+                                                  style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: Color(
+                                                          0xFF7B1FA2))),
+                                            ),
+                                          ]),
+                                          if (rx.diagnosis != null &&
+                                              rx.diagnosis!.isNotEmpty) ...[
+                                            const SizedBox(height: 8),
+                                            Text(rx.diagnosis!,
+                                                style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors
+                                                        .grey.shade600,
+                                                    fontStyle:
+                                                        FontStyle.italic)),
+                                          ],
+                                          const SizedBox(height: 10),
+                                          ...rx.medicines.map((m) {
+                                            final name = m['medicine'] ??
+                                                m['name'] ??
+                                                '';
+                                            final dosage = m['dosage'] ?? '';
+                                            final duration =
+                                                m['duration'] ?? '';
+                                            return Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 6),
+                                              child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Container(
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                            top: 5, right: 8),
+                                                    width: 7,
+                                                    height: 7,
+                                                    decoration:
+                                                        const BoxDecoration(
+                                                      color:
+                                                          Color(0xFF7B1FA2),
+                                                      shape: BoxShape.circle,
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(name,
+                                                            style: const TextStyle(
+                                                                fontSize: 13,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w600,
+                                                                color: _textPrim)),
+                                                        if (dosage.isNotEmpty ||
+                                                            duration
+                                                                .isNotEmpty)
+                                                          Text(
+                                                            [
+                                                              if (dosage
+                                                                  .isNotEmpty)
+                                                                dosage,
+                                                              if (duration
+                                                                  .isNotEmpty)
+                                                                duration,
+                                                            ].join('  ·  '),
+                                                            style: TextStyle(
+                                                                fontSize: 11,
+                                                                color: Colors
+                                                                    .grey
+                                                                    .shade500),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+
+                        // Offline treatments
+                        if (offlineTreatments.isNotEmpty) ...[
+                          if (prescriptions.isNotEmpty)
+                            const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text('Offline Visit Treatments',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF795548)
+                                        .withValues(alpha: 0.8))),
+                          ),
+                          ...offlineTreatments.map((s) {
+                            final dateStr =
+                                '${s.uploadedAt.day}/${s.uploadedAt.month}/${s.uploadedAt.year}';
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF795548)
+                                        .withValues(alpha: 0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      height: 3,
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(colors: [
+                                          Color(0xFF795548),
+                                          Color(0xFFA1887F)
+                                        ]),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(children: [
+                                            Container(
+                                              padding: const EdgeInsets
+                                                  .all(7),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    const Color(0xFFFFF8E1),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        8),
+                                              ),
+                                              child: const Icon(
+                                                  Icons
+                                                      .local_hospital_rounded,
+                                                  size: 16,
+                                                  color:
+                                                      Color(0xFF795548)),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment
+                                                        .start,
+                                                children: [
+                                                  Text(s.doctorName,
+                                                      style: const TextStyle(
+                                                          fontSize: 13,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: _textPrim)),
+                                                  Text(dateStr,
+                                                      style: const TextStyle(
+                                                          fontSize: 11,
+                                                          color: _textSec)),
+                                                ],
+                                              ),
+                                            ),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    const Color(0xFFFFF8E1),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        20),
+                                              ),
+                                              child: const Text('Offline',
+                                                  style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: Color(
+                                                          0xFF795548))),
+                                            ),
+                                          ]),
+                                          if (s.diagnosis.isNotEmpty) ...[
+                                            const SizedBox(height: 8),
+                                            Text(s.diagnosis,
+                                                style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors
+                                                        .grey.shade600,
+                                                    fontStyle:
+                                                        FontStyle.italic)),
+                                          ],
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Icon(
+                                                  Icons.medication_outlined,
+                                                  size: 14,
+                                                  color: Color(0xFF795548)),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  s.treatmentGiven,
+                                                  style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: _textPrim),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
           ],
         ),
       ),
