@@ -213,11 +213,16 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a doctor and a slot')));
       return;
     }
+    // Capture values NOW before any async gap — the Firestore stream can
+    // fire after bookAppointment() resolves and reset selectedSlot to null.
+    final bookedDoctorName = selectedDoctor!.name;
+    final bookedSlot = selectedSlot!;
+
     setState(() => _booking = true);
     try {
       await _service.bookAppointment(
-        doctorId: selectedDoctor!.id, doctorName: selectedDoctor!.name,
-        date: selectedDate, slot: selectedSlot!,
+        doctorId: selectedDoctor!.id, doctorName: bookedDoctorName,
+        date: selectedDate, slot: bookedSlot,
       );
       // Cancel stream BEFORE navigating so the slot update from our own
       // booking doesn't trigger the "booked by someone else" warning.
@@ -226,7 +231,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Appointment booked with Dr. ${selectedDoctor!.name} at $selectedSlot!'),
+          content: Text('Appointment booked with Dr. $bookedDoctorName at $bookedSlot!'),
           backgroundColor: deepBlue, behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(16),

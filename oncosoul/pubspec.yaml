@@ -27,6 +27,7 @@ dependencies:
   http: ^1.2.0
   firebase_storage: ^12.4.0
   open_file: ^3.3.2
+  onesignal_flutter: ^5.0.0 
  
 
 

@@ -21,7 +21,7 @@ class SupabaseStorageService {
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjZGlwcWh2dHB4ZnlhbmJnZHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjkzOTksImV4cCI6MjA4ODMwNTM5OX0.0XUjv_pAa-zz5va4cYDpZsQLQeogZXQHZjA7TLM4Of0';
   // ─────────────────────────────────────────────────────────────────────────
 
-  static const String _bucket = 'medical-reports';
+  static const String _bucket = 'medical _report';
 
   /// Uploads [bytes] to Supabase Storage and returns the public URL.
   ///
